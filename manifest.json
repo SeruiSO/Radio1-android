@@ -1,13 +1,13 @@
 {
-  "name": "Radio Music S O",
+  "name": "Radio S O",
   "short_name": "Radio S O",
-  "description": "Listen to your favorite radio stations with modern UI and features",
+  "description": "Сучасний PWA радіоплеєр з підтримкою обраного, історії та фонових медіа-контролів.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#00E676",
+  "background_color": "#0a0a0a",
+  "theme_color": "#6C63FF",
   "orientation": "portrait",
-  "categories": ["music", "entertainment"],
+  "categories": ["music", "entertainment", "radio"],
   "icons": [
     {
       "src": "icon-192.png",
@@ -23,5 +23,6 @@
     }
   ],
   "screenshots": [],
-  "prefer_related_applications": false
+  "prefer_related_applications": false,
+  "related_applications": []
 }
