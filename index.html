@@ -12,14 +12,11 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="preconnect" href="https://de1.api.radio-browser.info">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="container">
-    <!-- Control Buttons -->
-    <button class="theme-toggle" aria-label="Змінити тему">🎨</button>
+    <!-- Кнопки управління -->
+    <button class="theme-toggle" aria-label="Змінити тему">🌙</button>
     <button class="share-button" aria-label="Поділитися поточною станцією">📢</button>
     <button class="export-button" aria-label="Експортувати налаштування">📤</button>
     <button class="import-button" aria-label="Імпортувати налаштування">📥</button>
@@ -29,10 +26,7 @@
     <audio id="audioPlayer" aria-label="Аудіоплеєр" preload="auto"></audio>
 
     <!-- Loading Indicator -->
-    <div class="loading-indicator" id="loadingIndicator" role="status" aria-label="Завантаження">
-      <div class="spinner-ring"></div>
-      <div class="spinner"></div>
-    </div>
+    <div class="loading-indicator" id="loadingIndicator" role="status" aria-label="Завантаження"></div>
 
     <!-- Toast Container -->
     <div class="toast-container" id="toastContainer" role="alert"></div>
@@ -52,12 +46,12 @@
           <div class="station-country" aria-label="Країна">країна: -</div>
           <div class="current-track" id="currentTrack" aria-label="Поточний трек">🎵 Трек: невідомо</div>
         </div>
-        <!-- Wave Visualizer -->
+        <!-- Сучасний хвильовий візуалізатор -->
         <div class="wave-visualizer" aria-hidden="true">
-          <svg viewBox="0 0 100 48" preserveAspectRatio="none">
-            <path d="M10,24 Q25,8 40,24 T70,24 T90,24" stroke="var(--accent)" fill="none" stroke-width="2.5" stroke-linecap="round"/>
-            <path d="M10,24 Q25,40 40,24 T70,24 T90,24" stroke="var(--accent)" fill="none" stroke-width="2.5" stroke-linecap="round" opacity="0.7"/>
-            <path d="M10,24 Q25,16 40,24 T70,24 T90,24" stroke="var(--accent)" fill="none" stroke-width="2.5" stroke-linecap="round" opacity="0.4"/>
+          <svg viewBox="0 0 100 60" preserveAspectRatio="none">
+            <path d="M10,30 Q20,10 30,30 T50,30 T70,30 T90,30" stroke="var(--accent)" fill="none" stroke-width="2"/>
+            <path d="M10,30 Q20,50 30,30 T50,30 T70,30 T90,30" stroke="var(--accent)" fill="none" stroke-width="2" opacity="0.7"/>
+            <path d="M10,30 Q20,20 30,30 T50,30 T70,30 T90,30" stroke="var(--accent)" fill="none" stroke-width="2" opacity="0.4"/>
           </svg>
         </div>
       </div>
@@ -97,7 +91,7 @@
     <div class="new-tab-modal modal-overlay" style="display: none;" role="dialog" aria-label="Створити нову вкладку">
       <div class="modal">
         <h2>Створити нову вкладку</h2>
-        <input id="newTabName" type="text" placeholder="Назва (a-z, 0-9, -, _)" aria-label="Назва нової вкладки" maxlength="10" pattern="[a-z0-9_-]+">
+        <input id="newTabName" type="text" placeholder="Введіть назву вкладки (a-z, 0-9, -, _)" aria-label="Назва нової вкладки" maxlength="10" pattern="[a-z0-9_-]+">
         <div class="modal-tabs">
           <button id="createTabBtn" class="modal-tab-btn" aria-label="Створити вкладку">Створити</button>
           <button class="modal-cancel-btn" aria-label="Скасувати">Скасувати</button>
@@ -109,7 +103,7 @@
     <div class="edit-tab-modal modal-overlay" style="display: none;" role="dialog" aria-label="Редагувати вкладку">
       <div class="modal">
         <h2>Дії з вкладкою</h2>
-        <input id="renameTabName" type="text" placeholder="Нова назва" aria-label="Нова назва вкладки" maxlength="10" pattern="[a-z0-9_-]+">
+        <input id="renameTabName" type="text" placeholder="Введіть нову назву вкладки" aria-label="Нова назва вкладки" maxlength="10" pattern="[a-z0-9_-]+">
         <div class="modal-tabs">
           <button id="renameTabBtn" class="modal-tab-btn" aria-label="Перейменувати вкладку">Перейменувати</button>
           <button id="deleteTabBtn" class="modal-tab-btn" aria-label="Видалити вкладку">Видалити</button>
@@ -117,6 +111,7 @@
         </div>
       </div>
     </div>
+
   </div>
   
   <!-- Service Worker Registration -->
