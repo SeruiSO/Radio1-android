@@ -1805,189 +1805,138 @@ document.addEventListener("DOMContentLoaded", () => {
       syncQueueToNative();
     }
 
-    // Drag and Drop Functions
+    // Drag: довге натискання на рядок → перетягнути (без кнопки ⋮⋮)
+    let dragSuppressClick = false;
+    let dragActiveItem = null;
+    let dragPointerId = null;
+
+    function canReorderTab() {
+      return ["techno", "trance", "ukraine", "pop", "best", ...customTabs].includes(currentTab);
+    }
+
     function enableDragMode() {
       dragEnabled = true;
-      showToast("Режим перетягування увімкнено. Перетягуйте за ручку для зміни порядку.", "info", 2000);
-      
       stationItems.forEach(item => {
-        item.setAttribute("draggable", "true");
-        // Забороняємо виділення тексту
         item.style.userSelect = "none";
         item.style.webkitUserSelect = "none";
+        item.style.touchAction = "none";
       });
     }
 
     function disableDragMode() {
       dragEnabled = false;
       dragStartIndex = null;
-      
+      dragActiveItem = null;
+      dragPointerId = null;
       stationItems.forEach(item => {
-        item.setAttribute("draggable", "false");
+        item.classList.remove("dragging", "drag-over", "long-press");
         item.style.userSelect = "";
         item.style.webkitUserSelect = "";
+        item.style.touchAction = "";
       });
     }
 
     function setupDragAndDrop() {
+      if (!canReorderTab()) return;
+
       stationItems.forEach((item, index) => {
-        const dragHandle = item.querySelector(".drag-handle");
-        if (!dragHandle) return;
-
-        dragHandle.removeEventListener("pointerdown", handleDragHandleClick);
-        dragHandle.removeEventListener("touchstart", handleLongPress);
-        dragHandle.removeEventListener("pointerup", handlePointerUp);
-        dragHandle.removeEventListener("pointerleave", handlePointerLeave);
-        item.removeEventListener("dragstart", handleDragStart);
-        item.removeEventListener("dragend", handleDragEnd);
-        item.removeEventListener("dragover", handleDragOver);
-        item.removeEventListener("dragleave", handleDragLeave);
-        item.removeEventListener("drop", handleDrop);
-        
-        dragHandle.addEventListener("pointerdown", handleDragHandleClick);
-        dragHandle.addEventListener("touchstart", handleLongPress);
-        dragHandle.addEventListener("pointerup", handlePointerUp);
-        dragHandle.addEventListener("pointerleave", handlePointerLeave);
-        
-        item.setAttribute("draggable", dragEnabled ? "true" : "false");
         item.dataset.index = index;
-        
-        item.addEventListener("dragstart", handleDragStart);
-        item.addEventListener("dragend", handleDragEnd);
-        item.addEventListener("dragover", handleDragOver);
-        item.addEventListener("dragleave", handleDragLeave);
-        item.addEventListener("drop", handleDrop);
+        item.style.touchAction = "pan-y";
+
+        item.removeEventListener("pointerdown", onItemPointerDown);
+        item.removeEventListener("pointermove", onItemPointerMove);
+        item.removeEventListener("pointerup", onItemPointerUp);
+        item.removeEventListener("pointercancel", onItemPointerUp);
+        item.removeEventListener("contextmenu", onItemContextMenu);
+
+        item.addEventListener("pointerdown", onItemPointerDown);
+        item.addEventListener("pointermove", onItemPointerMove);
+        item.addEventListener("pointerup", onItemPointerUp);
+        item.addEventListener("pointercancel", onItemPointerUp);
+        item.addEventListener("contextmenu", onItemContextMenu);
       });
     }
 
-    function handleDragHandleClick(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      
-      if (!dragEnabled) {
-        enableDragMode();
-        provideHapticFeedback();
-        
-        const item = e.target.closest(".station-item");
-        if (item) {
-          setTimeout(() => {
-            const dragEvent = new DragEvent('dragstart', {
-              bubbles: true,
-              cancelable: true,
-              dataTransfer: new DataTransfer()
-            });
-            item.dispatchEvent(dragEvent);
-          }, 50);
-        }
-        return;
-      }
-    }
-
-    function handleDragStart(e) {
-      if (!dragEnabled) {
+    function onItemContextMenu(e) {
+      // довге натискання на Android інколи відкриває меню — блокуємо під час reorder
+      if (dragEnabled || longPressTimer) {
         e.preventDefault();
-        return;
-      }
-      
-      const item = e.target.closest(".station-item");
-      if (!item) return;
-
-      dragStartIndex = parseInt(item.dataset.index);
-      item.classList.add("dragging");
-      
-      e.dataTransfer.setData("text/plain", dragStartIndex);
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setDragImage(item, 20, 20);
-      
-      provideHapticFeedback();
-    }
-
-    function handleDragEnd(e) {
-      const item = e.target.closest(".station-item");
-      if (item) {
-        item.classList.remove("dragging");
-      }
-      
-      document.querySelectorAll(".station-item").forEach(i => {
-        i.classList.remove("drag-over");
-      });
-      
-      dragStartIndex = null;
-    }
-
-    function handleDragOver(e) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      
-      const item = e.target.closest(".station-item");
-      if (item && dragEnabled && item !== stationItems[dragStartIndex]) {
-        item.classList.add("drag-over");
       }
     }
 
-    function handleDragLeave(e) {
-      const item = e.target.closest(".station-item");
-      if (item) {
-        item.classList.remove("drag-over");
-      }
-    }
+    function onItemPointerDown(e) {
+      if (!canReorderTab()) return;
+      if (e.target.closest(".favorite-btn, .delete-btn, .add-btn")) return;
+      if (e.button != null && e.button !== 0) return;
 
-    function handleDrop(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      
-      const targetItem = e.target.closest(".station-item");
-      if (!targetItem || dragStartIndex === null || !dragEnabled) return;
+      const item = e.currentTarget;
+      if (!item || item.classList.contains("empty")) return;
 
-      targetItem.classList.remove("drag-over");
-      
-      const dragEndIndex = parseInt(targetItem.dataset.index);
-      if (dragStartIndex === dragEndIndex) return;
-
-      reorderStations(dragStartIndex, dragEndIndex);
-      
-      document.querySelectorAll(".station-item").forEach(item => {
-        item.classList.remove("dragging", "drag-over");
-      });
-      
-      dragStartIndex = null;
-      disableDragMode();
-      provideHapticFeedback();
-      showToast("Порядок станцій оновлено!", "success");
-    }
-
-    function handleLongPress(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      
-      const item = e.target.closest(".station-item");
-      if (!item) return;
+      dragPointerId = e.pointerId;
+      dragSuppressClick = false;
+      clearTimeout(longPressTimer);
 
       longPressTimer = setTimeout(() => {
+        longPressTimer = null;
+        dragSuppressClick = true;
+        dragStartIndex = parseInt(item.dataset.index, 10);
+        dragActiveItem = item;
+        enableDragMode();
+        item.classList.add("dragging", "long-press");
+        try { item.setPointerCapture(e.pointerId); } catch (_) {}
+        provideHapticFeedback([80, 40, 80]);
+        showToast("Перетягніть на нове місце", "info", 1500);
+      }, 450);
+    }
+
+    function onItemPointerMove(e) {
+      if (longPressTimer && dragPointerId === e.pointerId) {
+        // невеликий рух до long-press — скасувати (скрол списку)
+        const item = e.currentTarget;
+        // якщо вже не dragging — при русі скасовуємо таймер
         if (!dragEnabled) {
-          enableDragMode();
-          item.classList.add("long-press");
-          setTimeout(() => item.classList.remove("long-press"), 500);
-          provideHapticFeedback([100]);
-          
-          setTimeout(() => {
-            const dragEvent = new DragEvent('dragstart', {
-              bubbles: true,
-              cancelable: true,
-              dataTransfer: new DataTransfer()
-            });
-            item.dispatchEvent(dragEvent);
-          }, 50);
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
         }
-      }, 500);
+      }
+      if (!dragEnabled || dragStartIndex === null || e.pointerId !== dragPointerId) return;
+      e.preventDefault();
+
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const over = el && el.closest ? el.closest(".station-item") : null;
+      stationItems.forEach(i => i.classList.remove("drag-over"));
+      if (over && !over.classList.contains("empty") && over !== dragActiveItem) {
+        over.classList.add("drag-over");
+      }
     }
 
-    function handlePointerUp() {
-      clearTimeout(longPressTimer);
-    }
+    function onItemPointerUp(e) {
+      if (e.pointerId !== dragPointerId && dragPointerId != null) return;
 
-    function handlePointerLeave() {
       clearTimeout(longPressTimer);
+      longPressTimer = null;
+
+      if (dragEnabled && dragStartIndex !== null) {
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        const over = el && el.closest ? el.closest(".station-item") : null;
+        let endIndex = dragStartIndex;
+        if (over && !over.classList.contains("empty")) {
+          endIndex = parseInt(over.dataset.index, 10);
+        }
+        stationItems.forEach(i => i.classList.remove("dragging", "drag-over", "long-press"));
+        if (endIndex !== dragStartIndex && !isNaN(endIndex)) {
+          reorderStations(dragStartIndex, endIndex);
+          provideHapticFeedback();
+          showToast("Порядок станцій оновлено!", "success");
+        }
+        disableDragMode();
+        e.preventDefault();
+        e.stopPropagation();
+        setTimeout(() => { dragSuppressClick = false; }, 50);
+        return;
+      }
+
+      dragPointerId = null;
     }
 
     function reorderStations(fromIndex, toIndex) {
@@ -2150,15 +2099,11 @@ document.addEventListener("DOMContentLoaded", () => {
           ? `<button class="delete-btn" aria-label="Видалити станцію">🗑</button>`
           : "";
         
-        const dragHandle = ["techno", "trance", "ukraine", "pop", ...customTabs, "best"].includes(currentTab)
-          ? `<button class="drag-handle" aria-label="Перетягнути для зміни порядку">⋮⋮</button>`
-          : "";
-        
+        // Порядок: довге натискання на рядок (без кнопки ⋮⋮)
         item.innerHTML = `
           ${iconHtml}
           <span class="station-name">${station.name}</span>
           <div class="buttons-container">
-            ${dragHandle}
             ${deleteButton}
             <button class="favorite-btn${favoriteStations.includes(station.name) ? " favorited" : ""}" aria-label="${favoriteStations.includes(station.name) ? "Видалити з улюблених" : "Додати до улюблених"}">★</button>
           </div>`;
@@ -2178,18 +2123,6 @@ document.addEventListener("DOMContentLoaded", () => {
       });
 
       setupDragAndDrop();
-      
-      stationList.addEventListener("dragover", handleDragOver);
-      stationList.addEventListener("dragleave", handleDragLeave);
-      stationList.addEventListener("drop", handleDrop);
-      
-      stationItems.forEach(item => {
-        const dragHandle = item.querySelector(".drag-handle");
-        if (dragHandle) {
-          dragHandle.addEventListener("pointerup", handlePointerUp);
-          dragHandle.addEventListener("pointerleave", handlePointerLeave);
-        }
-      });
 
       if (stationItems.length && stationItems[currentIndex] && !stationItems[currentIndex].classList.contains("empty")) {
         stationItems[currentIndex].scrollIntoView({ behavior: "smooth", block: "center" });
@@ -2199,9 +2132,13 @@ document.addEventListener("DOMContentLoaded", () => {
         const item = e.target.closest(".station-item");
         const favoriteBtn = e.target.closest(".favorite-btn");
         const deleteBtn = e.target.closest(".delete-btn");
-        const dragHandle = e.target.closest(".drag-handle");
         
-        if (item && !item.classList.contains("empty") && !dragHandle) {
+        if (dragSuppressClick || dragEnabled) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        if (item && !item.classList.contains("empty") && !e.target.closest(".favorite-btn, .delete-btn")) {
           e.preventDefault();
           currentIndex = Array.from(stationItems).indexOf(item);
           changeStation(currentIndex);
