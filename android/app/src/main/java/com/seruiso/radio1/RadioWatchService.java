@@ -5,10 +5,15 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.os.Build;
 import android.os.IBinder;
 import androidx.annotation.Nullable;
@@ -20,7 +25,7 @@ import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.session.MediaSession;
 import org.json.JSONArray;
 
-public class RadioWatchService extends Service {
+public class RadioWatchService extends Service implements AudioManager.OnAudioFocusChangeListener {
     public static final String ACTION_BT = "com.seruiso.radio1.BT_CONNECTED";
     public static final String ACTION_START = "com.seruiso.radio1.START_WATCH";
     public static final String ACTION_STOP = "com.seruiso.radio1.STOP";
@@ -29,6 +34,8 @@ public class RadioWatchService extends Service {
     public static final String ACTION_PLAY_URL = "com.seruiso.radio1.PLAY_URL";
     public static final String ACTION_MEDIA_NEXT = "com.seruiso.radio1.MEDIA_NEXT";
     public static final String ACTION_MEDIA_PREV = "com.seruiso.radio1.MEDIA_PREV";
+    public static final String ACTION_NOTIF_PLAY = "com.seruiso.radio1.NOTIF_PLAY";
+    public static final String ACTION_NOTIF_PAUSE = "com.seruiso.radio1.NOTIF_PAUSE";
 
     public static final String EXTRA_URL = "url";
     public static final String EXTRA_NAME = "name";
@@ -40,11 +47,27 @@ public class RadioWatchService extends Service {
     private MediaSession mediaSession;
     private String currentName = "Radio S O";
     private long lastSkipMs = 0;
+    private AudioManager audioManager;
+    private AudioFocusRequest focusRequest;
+    private boolean noisyRegistered = false;
+
+    private final BroadcastReceiver noisyReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())) {
+                if (player != null && player.isPlaying()) {
+                    player.pause();
+                    notifyForeground();
+                }
+            }
+        }
+    };
 
     @Override
     public void onCreate() {
         super.onCreate();
         createChannel();
+        audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
         player = new ExoPlayer.Builder(this).build();
 
         Player sessionPlayer = new ForwardingPlayer(player) {
@@ -89,12 +112,73 @@ public class RadioWatchService extends Service {
                 notifyForeground();
             }
         });
+        registerNoisy();
     }
 
-    /** Головне: скіп у нативці з debounce, без очікування WebView */
+    private void registerNoisy() {
+        if (noisyRegistered) return;
+        IntentFilter f = new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY);
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(noisyReceiver, f, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(noisyReceiver, f);
+        }
+        noisyRegistered = true;
+    }
+
+    private boolean requestFocus() {
+        if (audioManager == null) return true;
+        int result;
+        if (Build.VERSION.SDK_INT >= 26) {
+            if (focusRequest == null) {
+                focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                        .setAudioAttributes(new AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_MEDIA)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                                .build())
+                        .setOnAudioFocusChangeListener(this)
+                        .setAcceptsDelayedFocusGain(true)
+                        .build();
+            }
+            result = audioManager.requestAudioFocus(focusRequest);
+        } else {
+            result = audioManager.requestAudioFocus(this,
+                    AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+        }
+        return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+                || result == AudioManager.AUDIOFOCUS_REQUEST_DELAYED;
+    }
+
+    private void abandonFocus() {
+        if (audioManager == null) return;
+        if (Build.VERSION.SDK_INT >= 26 && focusRequest != null) {
+            audioManager.abandonAudioFocusRequest(focusRequest);
+        } else {
+            audioManager.abandonAudioFocus(this);
+        }
+    }
+
+    @Override
+    public void onAudioFocusChange(int focusChange) {
+        if (player == null) return;
+        switch (focusChange) {
+            case AudioManager.AUDIOFOCUS_LOSS:
+            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+                if (player.isPlaying()) player.pause();
+                notifyForeground();
+                break;
+            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
+                player.setVolume(0.3f);
+                break;
+            case AudioManager.AUDIOFOCUS_GAIN:
+                player.setVolume(1f);
+                break;
+        }
+    }
+
     private void skip(boolean next) {
         long now = System.currentTimeMillis();
-        if (now - lastSkipMs < 600) return; // анти-подвійний сигнал з керма
+        if (now - lastSkipMs < 600) return;
         lastSkipMs = now;
 
         SharedPreferences p = getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
@@ -106,7 +190,6 @@ public class RadioWatchService extends Service {
             JSONArray urls = new JSONArray(urlsJson);
             JSONArray names = new JSONArray(namesJson);
             if (urls.length() == 0) {
-                // Немає черги — тільки синхрон UI якщо можливо
                 notifyUiSkip(next);
                 return;
             }
@@ -128,20 +211,18 @@ public class RadioWatchService extends Service {
 
             currentName = name;
             playUrl(url);
-            notifyUiSkip(next); // підтягнути список у UI, якщо Activity жива
+            notifyUiSkip(next);
         } catch (Exception e) {
             notifyUiSkip(next);
         }
     }
 
     private void notifyUiSkip(boolean next) {
-        Intent i = new Intent(this, MainActivity.class);
-        i.setAction(next ? ACTION_MEDIA_NEXT : ACTION_MEDIA_PREV);
-        i.putExtra("fromNativeSkip", true); // JS лише синхронізує індекс, без повторного play
-        i.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
-        try {
-            startActivity(i);
-        } catch (Exception ignored) {}
+        // Не піднімаємо Activity з фону — лише sticky broadcast для живої UI
+        Intent i = new Intent(next ? ACTION_MEDIA_NEXT : ACTION_MEDIA_PREV);
+        i.setPackage(getPackageName());
+        i.putExtra("fromNativeSkip", true);
+        sendBroadcast(i);
     }
 
     @Override
@@ -154,18 +235,19 @@ public class RadioWatchService extends Service {
                 player.stop();
                 player.clearMediaItems();
             }
+            abandonFocus();
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
             return START_NOT_STICKY;
         }
 
-        if (ACTION_PAUSE.equals(action)) {
+        if (ACTION_PAUSE.equals(action) || ACTION_NOTIF_PAUSE.equals(action)) {
             if (player != null) player.pause();
             notifyForeground();
             return START_STICKY;
         }
 
-        if (ACTION_PLAY.equals(action) || ACTION_BT.equals(action)) {
+        if (ACTION_PLAY.equals(action) || ACTION_BT.equals(action) || ACTION_NOTIF_PLAY.equals(action)) {
             playLast();
             return START_STICKY;
         }
@@ -191,10 +273,11 @@ public class RadioWatchService extends Service {
 
     private void playUrl(String url) {
         if (url == null || url.isEmpty() || player == null) return;
-        if (url.startsWith("http://")) {
-            url = "https://" + url.substring("http://".length());
-        }
+        // НЕ форсуємо https — багато потоків лише http
         try {
+            if (!requestFocus()) {
+                android.util.Log.w("RadioWatch", "audio focus not granted");
+            }
             if (player.getCurrentMediaItem() != null
                     && player.getCurrentMediaItem().localConfiguration != null
                     && url.equals(player.getCurrentMediaItem().localConfiguration.uri.toString())
@@ -241,21 +324,50 @@ public class RadioWatchService extends Service {
             this, 0, open,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
+
         boolean playing = player != null && player.isPlaying();
-        return new NotificationCompat.Builder(this, CHANNEL)
+
+        Intent pauseI = new Intent(this, RadioWatchService.class);
+        pauseI.setAction(ACTION_NOTIF_PAUSE);
+        PendingIntent pausePi = PendingIntent.getService(
+            this, 1, pauseI,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        Intent playI = new Intent(this, RadioWatchService.class);
+        playI.setAction(ACTION_NOTIF_PLAY);
+        PendingIntent playPi = PendingIntent.getService(
+            this, 2, playI,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        NotificationCompat.Builder b = new NotificationCompat.Builder(this, CHANNEL)
             .setContentTitle("Radio S O")
-            .setContentText(playing ? ("Грає: " + currentName) : "Стежить за Bluetooth")
+            .setContentText(playing ? ("Грає: " + currentName) : "На паузі / стежить за BT")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(pi)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .build();
+            .setStyle(new androidx.media.app.NotificationCompat.MediaStyle()
+                .setShowActionsInCompactView(0));
+
+        if (playing) {
+            b.addAction(android.R.drawable.ic_media_pause, "Пауза", pausePi);
+        } else {
+            b.addAction(android.R.drawable.ic_media_play, "Грати", playPi);
+        }
+        return b.build();
     }
 
     @Override
     public void onDestroy() {
+        if (noisyRegistered) {
+            try { unregisterReceiver(noisyReceiver); } catch (Exception ignored) {}
+            noisyRegistered = false;
+        }
+        abandonFocus();
         if (mediaSession != null) {
             mediaSession.release();
             mediaSession = null;

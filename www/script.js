@@ -469,16 +469,28 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function importSettings(event) {
-      const file = event.target.files[0];
-      if (!file) return;
+      const file = event.target.files && event.target.files[0];
+      if (!file) {
+        showToast("Файл не вибрано", "error");
+        return;
+      }
       const reader = new FileReader();
+      reader.onerror = () => showToast("Не вдалося прочитати файл", "error");
       reader.onload = (e) => {
         try {
-          const settings = JSON.parse(e.target.result);
+          let raw = e.target.result;
+          if (typeof raw !== "string") {
+            showToast("Невірний вміст файлу", "error");
+            return;
+          }
+          // BOM / випадкові префікси
+          raw = raw.replace(/^\uFEFF/, "").trim();
+          const settings = JSON.parse(raw);
           if (!settings || typeof settings !== "object") {
             showToast("Невірний файл налаштувань!", "error");
             return;
           }
+
           const validThemes = [
             "shadow-pulse", "dark-abyss", "emerald-glow", "retro-wave",
             "neon-pulse", "lime-surge", "flamingo-flash", "aqua-glow",
@@ -488,47 +500,66 @@ document.addEventListener("DOMContentLoaded", () => {
             localStorage.setItem("selectedTheme", settings.selectedTheme);
             applyTheme(settings.selectedTheme);
           }
+
           if (Array.isArray(settings.customTabs)) {
-            const validTabs = settings.customTabs.filter(tab => 
-              typeof tab === "string" && 
-              tab.trim() && 
-              tab.length <= 10 && 
-              /^[a-z0-9_-]+$/.test(tab) && 
-              !["best", "techno", "trance", "ukraine", "pop", "search"].includes(tab) &&
-              !customTabs.includes(tab)
-            );
-            if (validTabs.length + customTabs.length <= 7) {
-              customTabs = validTabs;
-              localStorage.setItem("customTabs", JSON.stringify(customTabs));
-            } else {
-              console.warn("Imported custom tabs exceed limit of 7, skipping");
-            }
+            customTabs = settings.customTabs.filter(tab =>
+              typeof tab === "string" &&
+              tab.trim() &&
+              tab.length <= 10 &&
+              /^[a-z0-9_-]+$/.test(tab) &&
+              !["best", "techno", "trance", "ukraine", "pop", "search"].includes(tab)
+            ).slice(0, 7);
+            localStorage.setItem("customTabs", JSON.stringify(customTabs));
           }
+
+          const tabOk = (tab) =>
+            ["techno", "trance", "ukraine", "pop"].includes(tab) || customTabs.includes(tab);
+
+          const normalizeStation = (s) => {
+            if (!s || typeof s !== "object") return null;
+            if (!s.name || typeof s.name !== "string") return null;
+            if (!s.value || !isValidUrl(s.value)) return null;
+            return {
+              value: s.value,
+              name: s.name,
+              genre: typeof s.genre === "string" ? s.genre : (s.genre || "Unknown"),
+              country: typeof s.country === "string" ? s.country : (s.country || "Unknown"),
+              favicon: typeof s.favicon === "string" ? s.favicon : "",
+              isFromSearch: !!s.isFromSearch
+            };
+          };
+
           if (settings.userAddedStations && typeof settings.userAddedStations === "object") {
             const validStations = {};
             Object.keys(settings.userAddedStations).forEach(tab => {
-              if (["techno", "trance", "ukraine", "pop", ...customTabs].includes(tab)) {
-                const stations = Array.isArray(settings.userAddedStations[tab]) 
-                  ? settings.userAddedStations[tab].filter(s => 
-                      s && typeof s === "object" && 
-                      s.name && typeof s.name === "string" && 
-                      s.value && isValidUrl(s.value) && 
-                      s.genre && typeof s.genre === "string" && 
-                      s.country && typeof s.country === "string"
-                    )
-                  : [];
-                validStations[tab] = stations;
-              }
+              if (!tabOk(tab)) return;
+              const stations = Array.isArray(settings.userAddedStations[tab])
+                ? settings.userAddedStations[tab].map(normalizeStation).filter(Boolean)
+                : [];
+              validStations[tab] = stations;
             });
             userAddedStations = validStations;
             localStorage.setItem("userAddedStations", JSON.stringify(userAddedStations));
           }
+
+          // Повний stationLists з експорту (порядок станцій)
+          if (settings.stationLists && typeof settings.stationLists === "object") {
+            const lists = {};
+            Object.keys(settings.stationLists).forEach(tab => {
+              if (!tabOk(tab) && tab !== "best") return;
+              if (!Array.isArray(settings.stationLists[tab])) return;
+              lists[tab] = settings.stationLists[tab].map(normalizeStation).filter(Boolean);
+            });
+            stationLists = lists;
+            localStorage.setItem("stationLists", JSON.stringify(stationLists));
+          }
+
           if (Array.isArray(settings.favoriteStations)) {
             favoriteStations = settings.favoriteStations.filter(name => typeof name === "string");
             localStorage.setItem("favoriteStations", JSON.stringify(favoriteStations));
           }
           if (Array.isArray(settings.pastSearches)) {
-            pastSearches = settings.pastSearches.filter(search => typeof search === "string").slice(0, 5);
+            pastSearches = settings.pastSearches.filter(s => typeof s === "string").slice(0, 5);
             localStorage.setItem("pastSearches", JSON.stringify(pastSearches));
             updatePastSearches();
           }
@@ -543,28 +574,34 @@ document.addEventListener("DOMContentLoaded", () => {
               localStorage.setItem("currentTab", currentTab);
             }
           }
-          if (settings.lastStationUrl) {
+          if (settings.lastStationUrl && isValidUrl(settings.lastStationUrl)) {
             lastStationUrl = settings.lastStationUrl;
             localStorage.setItem("lastStationUrl", lastStationUrl);
+            nativeSaveStation(lastStationUrl, settings.lastStationName || "");
           }
-          if (settings.lastStationName) {
+          if (settings.lastStationName && typeof settings.lastStationName === "string") {
             lastStationName = settings.lastStationName;
             localStorage.setItem("lastStationName", lastStationName);
           }
           if (typeof settings.intendedPlaying === "boolean") {
             intendedPlaying = settings.intendedPlaying;
-            localStorage.setItem("intendedPlaying", intendedPlaying); nativeSetPlaying(intendedPlaying);
+            localStorage.setItem("intendedPlaying", String(intendedPlaying));
+            nativeSetPlaying(intendedPlaying);
           }
-          loadStations();
-          switchTab(currentTab);
-          showToast("Налаштування успішно імпортовано!", "success");
+
+          renderTabs();
+          loadStations().then(() => {
+            switchTab(currentTab);
+            syncQueueToNative();
+            showToast("Налаштування успішно імпортовано!", "success");
+          });
         } catch (error) {
           console.error("Error importing settings:", error);
-          showToast("Помилка імпорту налаштувань. Перевірте формат файлу.", "error");
+          showToast("Помилка імпорту: " + (error && error.message ? error.message : "формат файлу"), "error");
         }
         importFileInput.value = "";
       };
-      reader.readAsText(file);
+      reader.readAsText(file, "UTF-8");
     }
 
     function populateSearchSuggestions() {
@@ -1375,7 +1412,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     themeToggle.addEventListener("click", toggleTheme);
 
-    if ("serviceWorker" in navigator) {
+    if ("serviceWorker" in navigator && !isNativeApp()) {
       navigator.serviceWorker.register("sw.js").then(registration => {
         registration.update();
         registration.addEventListener("updatefound", () => {
@@ -2163,8 +2200,8 @@ document.addEventListener("DOMContentLoaded", () => {
         fetchTrackMetadata(item.dataset.value, item.dataset.name);
       }
 
-      // ===== СИЛЬНА MEDIA SESSION =====
-      if ("mediaSession" in navigator) {
+      // ===== СИЛЬНА MEDIA SESSION (PWA) =====
+      if ("mediaSession" in navigator && !isNativeApp()) {
         navigator.mediaSession.metadata = new MediaMetadata({
           title: item.dataset.name || lastStationName || "Radio S O",
           artist: `${item.dataset.genre || ""} | ${item.dataset.country || ""}`,
@@ -2461,8 +2498,8 @@ document.addEventListener("DOMContentLoaded", () => {
       stopMetadataStreaming();
     });
 
-    // ===== НАЙВАЖЛИВІШЕ ДЛЯ АВТО: Media Session handlers =====
-    if ("mediaSession" in navigator) {
+    // ===== Media Session web — лише PWA; у нативці керує ExoPlayer =====
+    if ("mediaSession" in navigator && !isNativeApp()) {
       // Play — ОС Android часто викликає саме це при підключенні Bluetooth
       navigator.mediaSession.setActionHandler("play", () => {
         console.log("MediaSession: play action received (Bluetooth / system)");
