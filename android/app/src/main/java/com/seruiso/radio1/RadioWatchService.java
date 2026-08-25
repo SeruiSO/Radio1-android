@@ -49,6 +49,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
     private long lastSkipMs = 0;
     private long lastPlayMs = 0;
     private String lastPlayedUrl = "";
+    private boolean pausedByFocusLoss = false;
     private AudioManager audioManager;
     private AudioFocusRequest focusRequest;
     private boolean noisyRegistered = false;
@@ -165,15 +166,51 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         if (player == null) return;
         switch (focusChange) {
             case AudioManager.AUDIOFOCUS_LOSS:
+                // довга втрата (інший плеєр) — пауза, без авто-resume
+                if (player.isPlaying() || player.getPlayWhenReady()) {
+                    pausedByFocusLoss = false;
+                    player.pause();
+                    notifyForeground();
+                }
+                break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                if (player.isPlaying()) player.pause();
-                notifyForeground();
+                // дзвінок / навігація — пауза, потім resume при GAIN
+                if (player.isPlaying() || player.getPlayWhenReady()) {
+                    pausedByFocusLoss = true;
+                    player.pause();
+                    notifyForeground();
+                }
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
-                player.setVolume(0.3f);
+                // для радіо краще теж пауза на дзвінок/сповіщення, ніж тихо грати
+                if (player.isPlaying() || player.getPlayWhenReady()) {
+                    pausedByFocusLoss = true;
+                    player.pause();
+                    notifyForeground();
+                } else {
+                    player.setVolume(0.3f);
+                }
                 break;
             case AudioManager.AUDIOFOCUS_GAIN:
                 player.setVolume(1f);
+                if (pausedByFocusLoss) {
+                    pausedByFocusLoss = false;
+                    SharedPreferences sp = getSharedPreferences(
+                        BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
+                    boolean wantPlay = sp.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false);
+                    if (wantPlay) {
+                        player.setPlayWhenReady(true);
+                        if (player.getPlaybackState() == Player.STATE_IDLE
+                                || player.getPlaybackState() == Player.STATE_ENDED) {
+                            // якщо потік скинувся — перезапустити last URL
+                            String url = sp.getString(BluetoothAutoPlayPlugin.KEY_URL, "");
+                            if (url != null && !url.isEmpty()) {
+                                playUrl(url);
+                            }
+                        }
+                        notifyForeground();
+                    }
+                }
                 break;
         }
     }
@@ -233,6 +270,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         String action = intent != null ? intent.getAction() : null;
 
         if (ACTION_STOP.equals(action)) {
+            pausedByFocusLoss = false;
             if (player != null) {
                 player.stop();
                 player.clearMediaItems();
@@ -244,6 +282,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         }
 
         if (ACTION_PAUSE.equals(action) || ACTION_NOTIF_PAUSE.equals(action)) {
+            pausedByFocusLoss = false; // пауза від користувача — не resume після дзвінка
             if (player != null) player.pause();
             notifyForeground();
             return START_STICKY;
