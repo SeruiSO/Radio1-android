@@ -1809,13 +1809,31 @@ document.addEventListener("DOMContentLoaded", () => {
     let dragSuppressClick = false;
     let dragActiveItem = null;
     let dragPointerId = null;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    const LONG_PRESS_MS = 480;
+    const MOVE_CANCEL_PX = 14; // до long-press: більше = скрол, скасувати таймер
 
     function canReorderTab() {
       return ["techno", "trance", "ukraine", "pop", "best", ...customTabs].includes(currentTab);
     }
 
+    function setListScrollLock(lock) {
+      if (!stationList) return;
+      if (lock) {
+        stationList.style.overflowY = "hidden";
+        stationList.style.touchAction = "none";
+        document.body.style.touchAction = "none";
+      } else {
+        stationList.style.overflowY = "";
+        stationList.style.touchAction = "";
+        document.body.style.touchAction = "";
+      }
+    }
+
     function enableDragMode() {
       dragEnabled = true;
+      setListScrollLock(true);
       stationItems.forEach(item => {
         item.style.userSelect = "none";
         item.style.webkitUserSelect = "none";
@@ -1828,6 +1846,7 @@ document.addEventListener("DOMContentLoaded", () => {
       dragStartIndex = null;
       dragActiveItem = null;
       dragPointerId = null;
+      setListScrollLock(false);
       stationItems.forEach(item => {
         item.classList.remove("dragging", "drag-over", "long-press");
         item.style.userSelect = "";
@@ -1841,7 +1860,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
       stationItems.forEach((item, index) => {
         item.dataset.index = index;
-        item.style.touchAction = "pan-y";
 
         item.removeEventListener("pointerdown", onItemPointerDown);
         item.removeEventListener("pointermove", onItemPointerMove);
@@ -1849,19 +1867,16 @@ document.addEventListener("DOMContentLoaded", () => {
         item.removeEventListener("pointercancel", onItemPointerUp);
         item.removeEventListener("contextmenu", onItemContextMenu);
 
-        item.addEventListener("pointerdown", onItemPointerDown);
-        item.addEventListener("pointermove", onItemPointerMove);
-        item.addEventListener("pointerup", onItemPointerUp);
-        item.addEventListener("pointercancel", onItemPointerUp);
+        item.addEventListener("pointerdown", onItemPointerDown, { passive: true });
+        item.addEventListener("pointermove", onItemPointerMove, { passive: false });
+        item.addEventListener("pointerup", onItemPointerUp, { passive: false });
+        item.addEventListener("pointercancel", onItemPointerUp, { passive: false });
         item.addEventListener("contextmenu", onItemContextMenu);
       });
     }
 
     function onItemContextMenu(e) {
-      // довге натискання на Android інколи відкриває меню — блокуємо під час reorder
-      if (dragEnabled || longPressTimer) {
-        e.preventDefault();
-      }
+      if (dragEnabled || longPressTimer) e.preventDefault();
     }
 
     function onItemPointerDown(e) {
@@ -1873,6 +1888,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!item || item.classList.contains("empty")) return;
 
       dragPointerId = e.pointerId;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
       dragSuppressClick = false;
       clearTimeout(longPressTimer);
 
@@ -1886,32 +1903,41 @@ document.addEventListener("DOMContentLoaded", () => {
         try { item.setPointerCapture(e.pointerId); } catch (_) {}
         provideHapticFeedback([80, 40, 80]);
         showToast("Перетягніть на нове місце", "info", 1500);
-      }, 450);
+      }, LONG_PRESS_MS);
     }
 
     function onItemPointerMove(e) {
-      if (longPressTimer && dragPointerId === e.pointerId) {
-        // невеликий рух до long-press — скасувати (скрол списку)
-        const item = e.currentTarget;
-        // якщо вже не dragging — при русі скасовуємо таймер
-        if (!dragEnabled) {
+      if (e.pointerId !== dragPointerId) return;
+
+      const dx = e.clientX - dragStartX;
+      const dy = e.clientY - dragStartY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      // До long-press: сильний рух = скрол → скасувати таймер
+      if (longPressTimer && !dragEnabled) {
+        if (dist > MOVE_CANCEL_PX) {
           clearTimeout(longPressTimer);
           longPressTimer = null;
         }
+        return;
       }
-      if (!dragEnabled || dragStartIndex === null || e.pointerId !== dragPointerId) return;
+
+      if (!dragEnabled || dragStartIndex === null) return;
       e.preventDefault();
+      e.stopPropagation();
 
       const el = document.elementFromPoint(e.clientX, e.clientY);
       const over = el && el.closest ? el.closest(".station-item") : null;
-      stationItems.forEach(i => i.classList.remove("drag-over"));
+      stationItems.forEach(i => {
+        if (i !== dragActiveItem) i.classList.remove("drag-over");
+      });
       if (over && !over.classList.contains("empty") && over !== dragActiveItem) {
         over.classList.add("drag-over");
       }
     }
 
     function onItemPointerUp(e) {
-      if (e.pointerId !== dragPointerId && dragPointerId != null) return;
+      if (dragPointerId != null && e.pointerId !== dragPointerId) return;
 
       clearTimeout(longPressTimer);
       longPressTimer = null;
@@ -1932,7 +1958,7 @@ document.addEventListener("DOMContentLoaded", () => {
         disableDragMode();
         e.preventDefault();
         e.stopPropagation();
-        setTimeout(() => { dragSuppressClick = false; }, 50);
+        setTimeout(() => { dragSuppressClick = false; }, 80);
         return;
       }
 
