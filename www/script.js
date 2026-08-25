@@ -82,6 +82,60 @@ function nativeStop() {
   if (!plugin) return Promise.resolve();
   return plugin.stop().catch(function () {});
 }
+function nativeGetPlaybackState() {
+  const plugin = getNativeAutoPlay();
+  if (!plugin || !plugin.getPlaybackState) return Promise.resolve(null);
+  return plugin.getPlaybackState().catch(function () { return null; });
+}
+function applyNativePlaybackState(state) {
+  if (!state || !state.url) return false;
+  const url = state.url;
+  const name = state.name || "";
+  const idx = typeof state.queueIndex === "number" ? state.queueIndex : -1;
+  lastStationUrl = url;
+  lastStationName = name;
+  localStorage.setItem("lastStationUrl", lastStationUrl);
+  localStorage.setItem("lastStationName", lastStationName);
+  if (state.intendedPlaying) {
+    intendedPlaying = true;
+    isPlaying = true;
+    localStorage.setItem("intendedPlaying", "true");
+    localStorage.setItem("isPlaying", "true");
+  }
+  // Знайти в поточному списку
+  let found = -1;
+  if (stationItems && stationItems.length) {
+    for (let i = 0; i < stationItems.length; i++) {
+      if (stationItems[i].dataset && stationItems[i].dataset.value === url) {
+        found = i;
+        break;
+      }
+    }
+  }
+  if (found < 0 && idx >= 0 && stationItems && idx < stationItems.length) {
+    found = idx;
+  }
+  if (found >= 0 && stationItems[found]) {
+    currentIndex = found;
+    stationItems.forEach(function (el) { el.classList.remove("selected"); });
+    stationItems[found].classList.add("selected");
+    try {
+      updateCurrentStation(stationItems[found]);
+    } catch (e) {}
+  } else {
+    // немає в списку — хоча б назву
+    const nameEl = document.querySelector("#currentStationInfo .station-name");
+    if (nameEl && name) nameEl.textContent = name;
+  }
+  const btn = document.querySelector(".controls .control-btn:nth-child(2)");
+  if (btn && (state.intendedPlaying || isPlaying)) {
+    btn.textContent = "⏸";
+    btn.classList.add("playing");
+  }
+  try { updateWaveVisualizer(!!(state.intendedPlaying || isPlaying)); } catch (e) {}
+  return true;
+}
+
 function nativeSaveQueue(urls, names, index) {
   const plugin = getNativeAutoPlay();
   if (!plugin) return;
@@ -185,25 +239,41 @@ document.addEventListener("DOMContentLoaded", () => {
       // ===== ГЛИБОКИЙ АВТОЗАПУСК ДЛЯ АВТО =====
       // Якщо користувач востаннє слухав — готуємо відтворення максимально агресивно
       if (intendedPlaying) {
-        // Кілька спроб з різними затримками (холодний старт + Bluetooth)
-        setTimeout(() => {
-          isAutoPlayPending = false;
-          debouncedTryAutoPlay(5, 600);
-        }, 800);
-
-        setTimeout(() => {
-          if (intendedPlaying && (audio.paused || audio.error)) {
+        // Native: ExoPlayer/BT самі стартують — одна м'яка спроба UI-синку
+        // PWA: кілька retry як раніше
+        if (isNativeApp()) {
+          setTimeout(() => {
+            // лише оновити UI, без повторного nativePlay якщо сервіс уже грає
+            if (playPauseBtn && intendedPlaying) {
+              playPauseBtn.textContent = "⏸";
+              playPauseBtn.classList.add("playing");
+              updateWaveVisualizer(true);
+            }
+            if (lastStationName) {
+              const nameEl = currentStationInfo && currentStationInfo.querySelector(".station-name");
+              if (nameEl && (!nameEl.textContent || nameEl.textContent === "Виберіть станцію")) {
+                nameEl.textContent = lastStationName;
+              }
+            }
+          }, 600);
+        } else {
+          setTimeout(() => {
             isAutoPlayPending = false;
-            debouncedTryAutoPlay(4, 900);
-          }
-        }, 2500);
-
-        setTimeout(() => {
-          if (intendedPlaying && (audio.paused || audio.error)) {
-            isAutoPlayPending = false;
-            debouncedTryAutoPlay(3, 1200);
-          }
-        }, 5000);
+            debouncedTryAutoPlay(5, 600);
+          }, 800);
+          setTimeout(() => {
+            if (intendedPlaying && (audio.paused || audio.error)) {
+              isAutoPlayPending = false;
+              debouncedTryAutoPlay(4, 900);
+            }
+          }, 2500);
+          setTimeout(() => {
+            if (intendedPlaying && (audio.paused || audio.error)) {
+              isAutoPlayPending = false;
+              debouncedTryAutoPlay(3, 1200);
+            }
+          }, 5000);
+        }
       }
     });
 
@@ -432,9 +502,9 @@ document.addEventListener("DOMContentLoaded", () => {
           if (FS) {
             await FS.writeFile({
               path: "radio_settings.json",
-              data: btoa(unescape(encodeURIComponent(json))),
+              data: json,
               directory: "CACHE",
-              encoding: "BASE64"
+              encoding: "UTF8"
             });
             const uriResult = await FS.getUri({
               path: "radio_settings.json",
@@ -483,10 +553,42 @@ document.addEventListener("DOMContentLoaded", () => {
             showToast("Невірний вміст файлу", "error");
             return;
           }
-          // BOM / випадкові префікси
           raw = raw.replace(/^\uFEFF/, "").trim();
-          const settings = JSON.parse(raw);
-          if (!settings || typeof settings !== "object") {
+
+          let settings = null;
+          // 1) звичайний JSON
+          try {
+            settings = JSON.parse(raw);
+          } catch (e1) {
+            // 2) base64 (якщо Share/Filesystem віддав закодований файл)
+            try {
+              let decoded = raw;
+              // прибрати data: префікс якщо є
+              if (decoded.indexOf("base64,") !== -1) {
+                decoded = decoded.split("base64,").pop();
+              }
+              decoded = decoded.replace(/\s/g, "");
+              const bin = atob(decoded);
+              // UTF-8 з бінарного
+              try {
+                decoded = decodeURIComponent(escape(bin));
+              } catch (_) {
+                decoded = bin;
+              }
+              settings = JSON.parse(decoded);
+            } catch (e2) {
+              // 3) інколи файл = JSON всередині лапок / з BOM / з HTML
+              const start = raw.indexOf("{");
+              const end = raw.lastIndexOf("}");
+              if (start !== -1 && end > start) {
+                settings = JSON.parse(raw.slice(start, end + 1));
+              } else {
+                throw e1;
+              }
+            }
+          }
+
+          if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
             showToast("Невірний файл налаштувань!", "error");
             return;
           }
@@ -517,11 +619,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
           const normalizeStation = (s) => {
             if (!s || typeof s !== "object") return null;
-            if (!s.name || typeof s.name !== "string") return null;
-            if (!s.value || !isValidUrl(s.value)) return null;
+            const name = (s.name || s.title || "").toString().trim();
+            const value = (s.value || s.url || s.stream || "").toString().trim();
+            if (!name || !value) return null;
+            if (!isValidUrl(value)) return null;
             return {
-              value: s.value,
-              name: s.name,
+              value: value,
+              name: name,
               genre: typeof s.genre === "string" ? s.genre : (s.genre || "Unknown"),
               country: typeof s.country === "string" ? s.country : (s.country || "Unknown"),
               favicon: typeof s.favicon === "string" ? s.favicon : "",
@@ -542,7 +646,6 @@ document.addEventListener("DOMContentLoaded", () => {
             localStorage.setItem("userAddedStations", JSON.stringify(userAddedStations));
           }
 
-          // Повний stationLists з експорту (порядок станцій)
           if (settings.stationLists && typeof settings.stationLists === "object") {
             const lists = {};
             Object.keys(settings.stationLists).forEach(tab => {
@@ -555,7 +658,9 @@ document.addEventListener("DOMContentLoaded", () => {
           }
 
           if (Array.isArray(settings.favoriteStations)) {
-            favoriteStations = settings.favoriteStations.filter(name => typeof name === "string");
+            favoriteStations = settings.favoriteStations
+              .map(x => typeof x === "string" ? x : (x && x.name ? x.name : null))
+              .filter(Boolean);
             localStorage.setItem("favoriteStations", JSON.stringify(favoriteStations));
           }
           if (Array.isArray(settings.pastSearches)) {
@@ -2305,10 +2410,15 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       },
       visibilitychange: () => {
-        // Коли сторінка знову стає видимою (розблокували телефон / повернулися)
-        if (!document.hidden && intendedPlaying) {
-          isAutoPlayPending = false;
-          debouncedTryAutoPlay(4, 700);
+        if (!document.hidden) {
+          if (isNativeApp()) {
+            nativeGetPlaybackState().then(function (st) {
+              if (st) applyNativePlaybackState(st);
+            });
+          } else if (intendedPlaying) {
+            isAutoPlayPending = false;
+            debouncedTryAutoPlay(4, 700);
+          }
         }
       },
       pageshow: (e) => {
@@ -2319,13 +2429,21 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       },
       focus: () => {
-        if (intendedPlaying && (audio.paused || audio.error)) {
+        if (isNativeApp()) {
+          nativeGetPlaybackState().then(function (st) {
+            if (st) applyNativePlaybackState(st);
+          });
+        } else if (intendedPlaying && (audio.paused || audio.error)) {
           isAutoPlayPending = false;
           debouncedTryAutoPlay(3, 600);
         }
       },
       resume: () => {
-        if (intendedPlaying) {
+        if (isNativeApp()) {
+          nativeGetPlaybackState().then(function (st) {
+            if (st) applyNativePlaybackState(st);
+          });
+        } else if (intendedPlaying) {
           isAutoPlayPending = false;
           debouncedTryAutoPlay(4, 700);
         }
@@ -2341,6 +2459,28 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     // Нативка вже змінила потік — лише підсвітити індекс у списку
     window.addEventListener("media-next-sync", () => {
+      // Native вже змінив потік — підтягнути стан з prefs (надійніше за index++)
+      if (isNativeApp()) {
+        nativeGetPlaybackState().then(function (st) {
+          if (st && applyNativePlaybackState(st)) return;
+          // fallback: локальний index++
+          if (!stationItems || !stationItems.length) return;
+          currentIndex = currentIndex < stationItems.length - 1 ? currentIndex + 1 : 0;
+          if (stationItems[currentIndex]) {
+            stationItems.forEach(i => i.classList.remove("selected"));
+            stationItems[currentIndex].classList.add("selected");
+            lastStationUrl = stationItems[currentIndex].dataset.value;
+            lastStationName = stationItems[currentIndex].dataset.name;
+            localStorage.setItem("lastStationUrl", lastStationUrl);
+            localStorage.setItem("lastStationName", lastStationName);
+            updateCurrentStation(stationItems[currentIndex]);
+            isPlaying = true; intendedPlaying = true;
+            if (playPauseBtn) { playPauseBtn.textContent = "⏸"; playPauseBtn.classList.add("playing"); }
+            updateWaveVisualizer(true);
+          }
+        });
+        return;
+      }
       if (!stationItems || !stationItems.length) return;
       currentIndex = currentIndex < stationItems.length - 1 ? currentIndex + 1 : 0;
       if (stationItems[currentIndex]) {
@@ -2351,14 +2491,32 @@ document.addEventListener("DOMContentLoaded", () => {
         localStorage.setItem("lastStationUrl", lastStationUrl);
         localStorage.setItem("lastStationName", lastStationName);
         updateCurrentStation(stationItems[currentIndex]);
-        isPlaying = true;
-        intendedPlaying = true;
-        playPauseBtn.textContent = "⏸";
-        playPauseBtn.classList.add("playing");
+        isPlaying = true; intendedPlaying = true;
+        if (playPauseBtn) { playPauseBtn.textContent = "⏸"; playPauseBtn.classList.add("playing"); }
         updateWaveVisualizer(true);
       }
     });
     window.addEventListener("media-prev-sync", () => {
+      if (isNativeApp()) {
+        nativeGetPlaybackState().then(function (st) {
+          if (st && applyNativePlaybackState(st)) return;
+          if (!stationItems || !stationItems.length) return;
+          currentIndex = currentIndex > 0 ? currentIndex - 1 : stationItems.length - 1;
+          if (stationItems[currentIndex]) {
+            stationItems.forEach(i => i.classList.remove("selected"));
+            stationItems[currentIndex].classList.add("selected");
+            lastStationUrl = stationItems[currentIndex].dataset.value;
+            lastStationName = stationItems[currentIndex].dataset.name;
+            localStorage.setItem("lastStationUrl", lastStationUrl);
+            localStorage.setItem("lastStationName", lastStationName);
+            updateCurrentStation(stationItems[currentIndex]);
+            isPlaying = true; intendedPlaying = true;
+            if (playPauseBtn) { playPauseBtn.textContent = "⏸"; playPauseBtn.classList.add("playing"); }
+            updateWaveVisualizer(true);
+          }
+        });
+        return;
+      }
       if (!stationItems || !stationItems.length) return;
       currentIndex = currentIndex > 0 ? currentIndex - 1 : stationItems.length - 1;
       if (stationItems[currentIndex]) {
@@ -2369,20 +2527,28 @@ document.addEventListener("DOMContentLoaded", () => {
         localStorage.setItem("lastStationUrl", lastStationUrl);
         localStorage.setItem("lastStationName", lastStationName);
         updateCurrentStation(stationItems[currentIndex]);
-        isPlaying = true;
-        intendedPlaying = true;
-        playPauseBtn.textContent = "⏸";
-        playPauseBtn.classList.add("playing");
+        isPlaying = true; intendedPlaying = true;
+        if (playPauseBtn) { playPauseBtn.textContent = "⏸"; playPauseBtn.classList.add("playing"); }
         updateWaveVisualizer(true);
       }
     });
 
     window.addEventListener("bt-autoplay", () => {
       intendedPlaying = true;
-      localStorage.setItem("intendedPlaying", "true"); nativeSetPlaying(true);
+      isPlaying = true;
+      localStorage.setItem("intendedPlaying", "true");
+      localStorage.setItem("isPlaying", "true");
       nativeSetPlaying(true);
-      isAutoPlayPending = false;
-      debouncedTryAutoPlay(5, 400);
+      // Native service вже стартує по BT — не викликаємо nativePlay знову
+      if (playPauseBtn) {
+        playPauseBtn.textContent = "⏸";
+        playPauseBtn.classList.add("playing");
+      }
+      updateWaveVisualizer(true);
+      if (lastStationName) {
+        const nameEl = currentStationInfo && currentStationInfo.querySelector(".station-name");
+        if (nameEl) nameEl.textContent = lastStationName;
+      }
     });
 
     function addEventListeners() {

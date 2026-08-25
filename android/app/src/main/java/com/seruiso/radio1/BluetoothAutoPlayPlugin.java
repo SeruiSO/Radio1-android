@@ -99,6 +99,20 @@ public class BluetoothAutoPlayPlugin extends Plugin {
         call.resolve();
     }
 
+
+    @PluginMethod
+    public void getPlaybackState(PluginCall call) {
+        SharedPreferences p = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        JSObject o = new JSObject();
+        o.put("url", p.getString(KEY_URL, ""));
+        o.put("name", p.getString(KEY_NAME, ""));
+        o.put("intendedPlaying", p.getBoolean(KEY_PLAY, false));
+        o.put("queueIndex", p.getInt(KEY_QUEUE_INDEX, 0));
+        o.put("queueUrls", p.getString(KEY_QUEUE_URLS, "[]"));
+        o.put("queueNames", p.getString(KEY_QUEUE_NAMES, "[]"));
+        call.resolve(o);
+    }
+
     @PluginMethod
     public void requestReady(PluginCall call) {
         if (Build.VERSION.SDK_INT >= 31 && getPermissionState("bt") != PermissionState.GRANTED) {

@@ -47,6 +47,8 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
     private MediaSession mediaSession;
     private String currentName = "Radio S O";
     private long lastSkipMs = 0;
+    private long lastPlayMs = 0;
+    private String lastPlayedUrl = "";
     private AudioManager audioManager;
     private AudioFocusRequest focusRequest;
     private boolean noisyRegistered = false;
@@ -275,16 +277,30 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         if (url == null || url.isEmpty() || player == null) return;
         // НЕ форсуємо https — багато потоків лише http
         try {
+            long now = System.currentTimeMillis();
+            // той самий URL уже грає / щойно стартував — не перезапускати (BT double-play)
+            String currentUri = null;
+            if (player.getCurrentMediaItem() != null
+                    && player.getCurrentMediaItem().localConfiguration != null) {
+                currentUri = player.getCurrentMediaItem().localConfiguration.uri.toString();
+            }
+            boolean sameUrl = url.equals(currentUri) || url.equals(lastPlayedUrl);
+            if (sameUrl && (player.isPlaying()
+                    || player.getPlayWhenReady()
+                    || (now - lastPlayMs < 1500))) {
+                android.util.Log.d("RadioWatch", "playUrl skip duplicate: " + url);
+                if (!player.isPlaying() && player.getPlayWhenReady() == false
+                        && player.getPlaybackState() != Player.STATE_IDLE) {
+                    player.setPlayWhenReady(true);
+                }
+                notifyForeground();
+                return;
+            }
             if (!requestFocus()) {
                 android.util.Log.w("RadioWatch", "audio focus not granted");
             }
-            if (player.getCurrentMediaItem() != null
-                    && player.getCurrentMediaItem().localConfiguration != null
-                    && url.equals(player.getCurrentMediaItem().localConfiguration.uri.toString())
-                    && player.getPlaybackState() != Player.STATE_IDLE
-                    && player.isPlaying()) {
-                return;
-            }
+            lastPlayMs = now;
+            lastPlayedUrl = url;
             player.setMediaItem(MediaItem.fromUri(url));
             player.prepare();
             player.setPlayWhenReady(true);
