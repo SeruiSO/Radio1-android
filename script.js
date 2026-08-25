@@ -184,6 +184,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const playPauseBtn = document.querySelector(".controls .control-btn:nth-child(2)");
   const currentStationInfo = document.getElementById("currentStationInfo");
   const themeToggle = document.querySelector(".theme-toggle");
+  const moreMenuBtn = document.getElementById("moreMenuBtn");
+  const moreDropdown = document.getElementById("moreDropdown");
   const shareButton = document.querySelector(".share-button");
   const exportButton = document.querySelector(".export-button");
   const importButton = document.querySelector(".import-button");
@@ -210,6 +212,16 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeApp();
 
   function initializeApp() {
+    if (isNativeApp() && "serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function (regs) {
+        regs.forEach(function (r) { r.unregister(); });
+      }).catch(function () {});
+      if (window.caches && caches.keys) {
+        caches.keys().then(function (keys) {
+          keys.forEach(function (k) { caches.delete(k); });
+        }).catch(function () {});
+      }
+    }
     nativeRequestReady();
     if (lastStationUrl) nativeSaveStation(lastStationUrl, lastStationName);
     nativeSetPlaying(intendedPlaying);
@@ -301,6 +313,29 @@ document.addEventListener("DOMContentLoaded", () => {
     exportButton.addEventListener("click", exportSettings);
     importButton.addEventListener("click", () => importFileInput.click());
     importFileInput.addEventListener("change", importSettings);
+
+    function closeMoreMenu() {
+      if (!moreDropdown || !moreMenuBtn) return;
+      moreDropdown.hidden = true;
+      moreMenuBtn.setAttribute("aria-expanded", "false");
+    }
+    if (moreMenuBtn && moreDropdown) {
+      moreMenuBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const open = moreDropdown.hidden;
+        moreDropdown.hidden = !open;
+        moreMenuBtn.setAttribute("aria-expanded", open ? "true" : "false");
+      });
+      document.addEventListener("click", (e) => {
+        if (!moreDropdown.hidden && !moreDropdown.contains(e.target) && e.target !== moreMenuBtn) {
+          closeMoreMenu();
+        }
+      });
+      moreDropdown.querySelectorAll(".more-item").forEach((btn) => {
+        btn.addEventListener("click", () => setTimeout(closeMoreMenu, 50));
+      });
+    }
+
 
     document.querySelector(".controls .control-btn:nth-child(1)").addEventListener("click", () => {
       prevStation();

@@ -404,11 +404,17 @@
   font-size: clamp(14px, 2vw, 16px);
 }
 
-.station-item:hover,
+.station-item:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px var(--shadow);
+}
+
 .station-item.selected {
   border-color: var(--accent);
   transform: translateY(-2px);
   box-shadow: 0 4px 12px var(--shadow);
+  background: color-mix(in srgb, var(--accent) 28%, var(--container-bg));
 }
 
 /* Акцентні кольори для жанрів */
@@ -625,11 +631,9 @@ h1 {
   transition: color 0.3s ease;
 }
 
-/* Кнопки навігації */
+/* Кнопки: тема + меню ⋯ */
 .theme-toggle,
-.share-button,
-.export-button,
-.import-button {
+.more-btn {
   position: absolute;
   top: 10px;
   background: var(--container-bg);
@@ -644,32 +648,67 @@ h1 {
   justify-content: center;
   transition: all 0.2s ease;
   font-size: 18px;
-  z-index: 5;
+  z-index: 20;
+  color: var(--text);
 }
 
-.theme-toggle {
-  left: 10px;
-}
+.theme-toggle { left: 10px; }
 
-.share-button {
-  left: 60px;
-}
-
-.export-button {
+.more-menu {
+  position: absolute;
+  top: 10px;
   right: 10px;
+  z-index: 30;
 }
-
-.import-button {
-  right: 60px;
+.more-btn {
+  position: relative;
+  top: 0;
+  right: 0;
+  font-size: 20px;
+  font-weight: 700;
 }
 
 .theme-toggle:hover,
-.share-button:hover,
-.export-button:hover,
-.import-button:hover {
+.more-btn:hover {
   background: var(--accent-gradient);
   color: var(--body-bg);
   transform: scale(1.1);
+}
+
+.more-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 170px;
+  background: var(--container-bg);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px var(--shadow);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 40;
+}
+.more-dropdown[hidden] { display: none !important; }
+
+.more-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.more-item:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
 }
 
 #importFileInput {
@@ -1126,30 +1165,14 @@ input:focus-visible,
   }
 
   .theme-toggle,
-  .share-button,
-  .export-button,
-  .import-button {
+  .more-btn {
     top: 8px;
     height: 36px;
     width: 36px;
     font-size: 16px;
   }
-
-  .theme-toggle {
-    left: 8px;
-  }
-
-  .share-button {
-    left: 52px;
-  }
-
-  .export-button {
-    right: 8px;
-  }
-
-  .import-button {
-    right: 52px;
-  }
+  .theme-toggle { left: 8px; }
+  .more-menu { top: 8px; right: 8px; }
 
   .tabs-wrapper {
     margin: 3px 0;

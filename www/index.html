@@ -15,11 +15,16 @@
 </head>
 <body>
   <div class="container">
-    <!-- Кнопки управління -->
+    <!-- Тема + меню ⋯ -->
     <button class="theme-toggle" aria-label="Змінити тему">🌙</button>
-    <button class="share-button" aria-label="Поділитися поточною станцією">📢</button>
-    <button class="export-button" aria-label="Експортувати налаштування">📤</button>
-    <button class="import-button" aria-label="Імпортувати налаштування">📥</button>
+    <div class="more-menu">
+      <button type="button" class="more-btn" id="moreMenuBtn" aria-label="Меню" aria-expanded="false">⋯</button>
+      <div class="more-dropdown" id="moreDropdown" hidden>
+        <button type="button" class="more-item share-button" aria-label="Поділитися">📢 Поділитися</button>
+        <button type="button" class="more-item export-button" aria-label="Експорт">📤 Експорт</button>
+        <button type="button" class="more-item import-button" aria-label="Імпорт">📥 Імпорт</button>
+      </div>
+    </div>
     <input type="file" id="importFileInput" accept="application/json" aria-label="Файл для імпорту налаштувань">
     
     <h1>🎧 Radio Music S O</h1>
