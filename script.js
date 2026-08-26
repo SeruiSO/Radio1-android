@@ -423,6 +423,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }, { passive: true });
 
       stationList.addEventListener("touchmove", (e) => {
+        if (dragEnabled) return;
         if (touchStartY && stationList.scrollTop === 0) {
           const currentY = e.touches[0].clientY;
           const pullDistance = currentY - touchStartY;
@@ -1805,40 +1806,43 @@ document.addEventListener("DOMContentLoaded", () => {
       syncQueueToNative();
     }
 
-    // Drag: довге натискання на рядок → перетягнути (без кнопки ⋮⋮)
+    // Drag: long-press на рядок → перетягнути (touch-friendly, без ⋮⋮)
     let dragSuppressClick = false;
     let dragActiveItem = null;
     let dragPointerId = null;
     let dragStartX = 0;
     let dragStartY = 0;
-    const LONG_PRESS_MS = 480;
-    const MOVE_CANCEL_PX = 14; // до long-press: більше = скрол, скасувати таймер
+    let dragDocBound = false;
+    const LONG_PRESS_MS = 450;
+    const MOVE_CANCEL_PX = 16;
 
     function canReorderTab() {
       return ["techno", "trance", "ukraine", "pop", "best", ...customTabs].includes(currentTab);
     }
 
-    function setListScrollLock(lock) {
-      if (!stationList) return;
+    function setPageScrollLock(lock) {
+      const html = document.documentElement;
       if (lock) {
-        stationList.style.overflowY = "hidden";
-        stationList.style.touchAction = "none";
-        document.body.style.touchAction = "none";
+        html.classList.add("is-reordering");
+        document.body.classList.add("is-reordering");
+        if (stationList) {
+          stationList.classList.add("is-reordering");
+          stationList.style.overflowY = "hidden";
+        }
       } else {
-        stationList.style.overflowY = "";
-        stationList.style.touchAction = "";
-        document.body.style.touchAction = "";
+        html.classList.remove("is-reordering");
+        document.body.classList.remove("is-reordering");
+        if (stationList) {
+          stationList.classList.remove("is-reordering");
+          stationList.style.overflowY = "";
+        }
       }
     }
 
     function enableDragMode() {
       dragEnabled = true;
-      setListScrollLock(true);
-      stationItems.forEach(item => {
-        item.style.userSelect = "none";
-        item.style.webkitUserSelect = "none";
-        item.style.touchAction = "none";
-      });
+      setPageScrollLock(true);
+      bindDocDragListeners(true);
     }
 
     function disableDragMode() {
@@ -1846,31 +1850,85 @@ document.addEventListener("DOMContentLoaded", () => {
       dragStartIndex = null;
       dragActiveItem = null;
       dragPointerId = null;
-      setListScrollLock(false);
-      stationItems.forEach(item => {
-        item.classList.remove("dragging", "drag-over", "long-press");
-        item.style.userSelect = "";
-        item.style.webkitUserSelect = "";
-        item.style.touchAction = "";
-      });
+      setPageScrollLock(false);
+      bindDocDragListeners(false);
+      if (stationItems) {
+        stationItems.forEach(item => {
+          item.classList.remove("dragging", "drag-over", "long-press");
+        });
+      }
+    }
+
+    function bindDocDragListeners(on) {
+      if (on && !dragDocBound) {
+        document.addEventListener("pointermove", onDocPointerMove, { passive: false, capture: true });
+        document.addEventListener("pointerup", onDocPointerUp, { passive: false, capture: true });
+        document.addEventListener("pointercancel", onDocPointerUp, { passive: false, capture: true });
+        document.addEventListener("touchmove", onDocTouchMove, { passive: false, capture: true });
+        dragDocBound = true;
+      } else if (!on && dragDocBound) {
+        document.removeEventListener("pointermove", onDocPointerMove, true);
+        document.removeEventListener("pointerup", onDocPointerUp, true);
+        document.removeEventListener("pointercancel", onDocPointerUp, true);
+        document.removeEventListener("touchmove", onDocTouchMove, true);
+        dragDocBound = false;
+      }
+    }
+
+    function onDocTouchMove(e) {
+      if (!dragEnabled) return;
+      e.preventDefault();
+    }
+
+    function onDocPointerMove(e) {
+      if (!dragEnabled || e.pointerId !== dragPointerId) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const over = el && el.closest ? el.closest(".station-item") : null;
+      if (stationItems) {
+        stationItems.forEach(i => {
+          if (i !== dragActiveItem) i.classList.remove("drag-over");
+        });
+      }
+      if (over && !over.classList.contains("empty") && over !== dragActiveItem) {
+        over.classList.add("drag-over");
+      }
+    }
+
+    function onDocPointerUp(e) {
+      if (!dragEnabled || (dragPointerId != null && e.pointerId !== dragPointerId)) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const over = el && el.closest ? el.closest(".station-item") : null;
+      let endIndex = dragStartIndex;
+      if (over && !over.classList.contains("empty")) {
+        endIndex = parseInt(over.dataset.index, 10);
+      }
+      if (stationItems) {
+        stationItems.forEach(i => i.classList.remove("dragging", "drag-over", "long-press"));
+      }
+      const from = dragStartIndex;
+      disableDragMode();
+      if (from != null && endIndex !== from && !isNaN(endIndex)) {
+        reorderStations(from, endIndex);
+        provideHapticFeedback();
+        showToast("Порядок станцій оновлено!", "success");
+      }
+      setTimeout(() => { dragSuppressClick = false; }, 100);
     }
 
     function setupDragAndDrop() {
-      if (!canReorderTab()) return;
+      if (!canReorderTab() || !stationItems) return;
 
       stationItems.forEach((item, index) => {
         item.dataset.index = index;
-
         item.removeEventListener("pointerdown", onItemPointerDown);
-        item.removeEventListener("pointermove", onItemPointerMove);
-        item.removeEventListener("pointerup", onItemPointerUp);
-        item.removeEventListener("pointercancel", onItemPointerUp);
         item.removeEventListener("contextmenu", onItemContextMenu);
-
         item.addEventListener("pointerdown", onItemPointerDown, { passive: true });
-        item.addEventListener("pointermove", onItemPointerMove, { passive: false });
-        item.addEventListener("pointerup", onItemPointerUp, { passive: false });
-        item.addEventListener("pointercancel", onItemPointerUp, { passive: false });
         item.addEventListener("contextmenu", onItemContextMenu);
       });
     }
@@ -1881,7 +1939,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function onItemPointerDown(e) {
       if (!canReorderTab()) return;
-      if (e.target.closest(".favorite-btn, .delete-btn, .add-btn")) return;
+      if (e.target.closest(".favorite-btn, .delete-btn, .add-btn, .more-btn")) return;
       if (e.button != null && e.button !== 0) return;
 
       const item = e.currentTarget;
@@ -1893,76 +1951,52 @@ document.addEventListener("DOMContentLoaded", () => {
       dragSuppressClick = false;
       clearTimeout(longPressTimer);
 
+      const startId = e.pointerId;
+      const startItem = item;
+
       longPressTimer = setTimeout(() => {
         longPressTimer = null;
+        if (dragPointerId !== startId) return;
         dragSuppressClick = true;
-        dragStartIndex = parseInt(item.dataset.index, 10);
-        dragActiveItem = item;
+        dragStartIndex = parseInt(startItem.dataset.index, 10);
+        dragActiveItem = startItem;
         enableDragMode();
-        item.classList.add("dragging", "long-press");
-        try { item.setPointerCapture(e.pointerId); } catch (_) {}
+        startItem.classList.add("dragging", "long-press");
+        try { startItem.setPointerCapture(startId); } catch (_) {}
         provideHapticFeedback([80, 40, 80]);
-        showToast("Перетягніть на нове місце", "info", 1500);
+        showToast("Перетягніть на нове місце", "info", 1200);
       }, LONG_PRESS_MS);
-    }
 
-    function onItemPointerMove(e) {
-      if (e.pointerId !== dragPointerId) return;
-
-      const dx = e.clientX - dragStartX;
-      const dy = e.clientY - dragStartY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-
-      // До long-press: сильний рух = скрол → скасувати таймер
-      if (longPressTimer && !dragEnabled) {
-        if (dist > MOVE_CANCEL_PX) {
+      // стежити за рухом ДО long-press (скасувати якщо скрол)
+      const preMove = (ev) => {
+        if (ev.pointerId !== startId) return;
+        if (dragEnabled) {
+          cleanupPre();
+          return;
+        }
+        const dx = ev.clientX - dragStartX;
+        const dy = ev.clientY - dragStartY;
+        if (Math.sqrt(dx * dx + dy * dy) > MOVE_CANCEL_PX) {
           clearTimeout(longPressTimer);
           longPressTimer = null;
+          cleanupPre();
         }
-        return;
-      }
-
-      if (!dragEnabled || dragStartIndex === null) return;
-      e.preventDefault();
-      e.stopPropagation();
-
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      const over = el && el.closest ? el.closest(".station-item") : null;
-      stationItems.forEach(i => {
-        if (i !== dragActiveItem) i.classList.remove("drag-over");
-      });
-      if (over && !over.classList.contains("empty") && over !== dragActiveItem) {
-        over.classList.add("drag-over");
-      }
-    }
-
-    function onItemPointerUp(e) {
-      if (dragPointerId != null && e.pointerId !== dragPointerId) return;
-
-      clearTimeout(longPressTimer);
-      longPressTimer = null;
-
-      if (dragEnabled && dragStartIndex !== null) {
-        const el = document.elementFromPoint(e.clientX, e.clientY);
-        const over = el && el.closest ? el.closest(".station-item") : null;
-        let endIndex = dragStartIndex;
-        if (over && !over.classList.contains("empty")) {
-          endIndex = parseInt(over.dataset.index, 10);
-        }
-        stationItems.forEach(i => i.classList.remove("dragging", "drag-over", "long-press"));
-        if (endIndex !== dragStartIndex && !isNaN(endIndex)) {
-          reorderStations(dragStartIndex, endIndex);
-          provideHapticFeedback();
-          showToast("Порядок станцій оновлено!", "success");
-        }
-        disableDragMode();
-        e.preventDefault();
-        e.stopPropagation();
-        setTimeout(() => { dragSuppressClick = false; }, 80);
-        return;
-      }
-
-      dragPointerId = null;
+      };
+      const preUp = (ev) => {
+        if (ev.pointerId !== startId) return;
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+        cleanupPre();
+        if (!dragEnabled) dragPointerId = null;
+      };
+      const cleanupPre = () => {
+        document.removeEventListener("pointermove", preMove, true);
+        document.removeEventListener("pointerup", preUp, true);
+        document.removeEventListener("pointercancel", preUp, true);
+      };
+      document.addEventListener("pointermove", preMove, { passive: true, capture: true });
+      document.addEventListener("pointerup", preUp, { passive: true, capture: true });
+      document.addEventListener("pointercancel", preUp, { passive: true, capture: true });
     }
 
     function reorderStations(fromIndex, toIndex) {

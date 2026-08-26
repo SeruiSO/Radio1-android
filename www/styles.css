@@ -1262,3 +1262,21 @@ input:focus-visible,
     max-height: 50vh;
   }
 }
+
+/* Під час long-press reorder — без скролу сторінки/WebView */
+html.is-reordering,
+body.is-reordering {
+  overflow: hidden !important;
+  overscroll-behavior: none !important;
+  touch-action: none !important;
+  position: relative;
+}
+.station-list.is-reordering {
+  overflow-y: hidden !important;
+  overscroll-behavior: none !important;
+  touch-action: none !important;
+}
+.station-item.dragging {
+  z-index: 50;
+  opacity: 0.85;
+}
