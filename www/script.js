@@ -928,8 +928,12 @@ document.addEventListener("DOMContentLoaded", () => {
         console.log("API by name failed:", error.message);
       }
 
-      // Якщо API не дало результату, показуємо назву станції
-      updateTrackDisplay(stationName);
+      // Якщо API не дало результату — у нативці чекаємо ICY з ExoPlayer, інакше назва станції
+      if (isNativeApp()) {
+        updateTrackDisplay("—");
+      } else {
+        updateTrackDisplay(stationName);
+      }
     }
 
     // Періодична перевірка через API
@@ -1001,11 +1005,19 @@ document.addEventListener("DOMContentLoaded", () => {
         currentTrackElement.textContent = "🎵 Завантаження треку...";
         currentTrackElement.classList.add("loading");
         currentTrack = "";
+      } else if (track === "—" || track === "-") {
+        currentTrackElement.textContent = "🎵 Трек: —";
+        currentTrack = "";
       } else {
-        // Якщо трек не визначено, показуємо назву станції
-        const stationName = stationItems?.[currentIndex]?.dataset?.name || "unknown";
-        currentTrackElement.textContent = `🎵 ${stationName}`;
-        currentTrack = stationName;
+        // Якщо трек не визначено
+        if (isNativeApp()) {
+          currentTrackElement.textContent = "🎵 Трек: —";
+          currentTrack = "";
+        } else {
+          const stationName = stationItems?.[currentIndex]?.dataset?.name || "unknown";
+          currentTrackElement.textContent = `🎵 ${stationName}`;
+          currentTrack = stationName;
+        }
       }
     }
 
@@ -2563,6 +2575,25 @@ document.addEventListener("DOMContentLoaded", () => {
         if (playPauseBtn) { playPauseBtn.textContent = "⏸"; playPauseBtn.classList.add("playing"); }
         updateWaveVisualizer(true);
       }
+    });
+
+    window.addEventListener("track-meta", (ev) => {
+      try {
+        const title = (ev && ev.detail && ev.detail.title) ? String(ev.detail.title).trim() : "";
+        if (!title) return;
+        // не показувати якщо це просто назва станції
+        if (lastStationName && title.toLowerCase() === String(lastStationName).toLowerCase()) return;
+        if (typeof updateTrackDisplay === "function") {
+          updateTrackDisplay(title);
+        } else {
+          const el = document.getElementById("currentTrack");
+          if (el) {
+            el.classList.remove("loading");
+            el.textContent = "🎵 " + title;
+            el.title = title;
+          }
+        }
+      } catch (e) { console.log("track-meta", e); }
     });
 
     window.addEventListener("bt-autoplay", () => {

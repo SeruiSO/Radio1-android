@@ -11,6 +11,10 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
@@ -20,7 +24,11 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import androidx.media3.common.ForwardingPlayer;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.MediaMetadata;
+import androidx.media3.common.Metadata;
 import androidx.media3.common.Player;
+import androidx.media3.extractor.metadata.icy.IcyInfo;
+import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.session.MediaSession;
 import org.json.JSONArray;
@@ -36,6 +44,8 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
     public static final String ACTION_MEDIA_PREV = "com.seruiso.radio1.MEDIA_PREV";
     public static final String ACTION_NOTIF_PLAY = "com.seruiso.radio1.NOTIF_PLAY";
     public static final String ACTION_NOTIF_PAUSE = "com.seruiso.radio1.NOTIF_PAUSE";
+    public static final String ACTION_TRACK_META = "com.seruiso.radio1.TRACK_META";
+    public static final String EXTRA_TRACK = "track";
 
     public static final String EXTRA_URL = "url";
     public static final String EXTRA_NAME = "name";
@@ -50,9 +60,13 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
     private long lastPlayMs = 0;
     private String lastPlayedUrl = "";
     private boolean pausedByFocusLoss = false;
+    private String lastTrackTitle = "";
     private AudioManager audioManager;
     private AudioFocusRequest focusRequest;
     private boolean noisyRegistered = false;
+    private ConnectivityManager connectivityManager;
+    private ConnectivityManager.NetworkCallback networkCallback;
+    private boolean networkCallbackRegistered = false;
 
     private final BroadcastReceiver noisyReceiver = new BroadcastReceiver() {
         @Override
@@ -71,7 +85,17 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         super.onCreate();
         createChannel();
         audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
-        player = new ExoPlayer.Builder(this).build();
+        DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                    30_000,  /* minBufferMs — запас при коротких обривах */
+                    120_000, /* maxBufferMs */
+                    2_500,   /* bufferForPlaybackMs */
+                    5_000    /* bufferForPlaybackAfterRebufferMs */
+                )
+                .build();
+        player = new ExoPlayer.Builder(this)
+                .setLoadControl(loadControl)
+                .build();
 
         Player sessionPlayer = new ForwardingPlayer(player) {
             @Override
@@ -114,8 +138,95 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             public void onIsPlayingChanged(boolean isPlaying) {
                 notifyForeground();
             }
+
+            @Override
+            public void onMediaMetadataChanged(MediaMetadata mediaMetadata) {
+                if (mediaMetadata == null) return;
+                CharSequence title = mediaMetadata.title;
+                if (title == null || title.length() == 0) title = mediaMetadata.displayTitle;
+                if (title != null && title.length() > 0) {
+                    publishTrack(title.toString());
+                }
+            }
+
+            @Override
+            public void onMetadata(Metadata metadata) {
+                if (metadata == null) return;
+                for (int i = 0; i < metadata.length(); i++) {
+                    Metadata.Entry e = metadata.get(i);
+                    if (e instanceof IcyInfo) {
+                        String title = ((IcyInfo) e).title;
+                        if (title != null && !title.trim().isEmpty()) {
+                            publishTrack(title.trim());
+                            return;
+                        }
+                    }
+                }
+            }
+
+            @Override
+            public void onPlayerError(androidx.media3.common.PlaybackException error) {
+                android.util.Log.w("RadioWatch", "player error: " + error.getMessage());
+                scheduleReconnect();
+            }
+
+            @Override
+            public void onPlaybackStateChanged(int state) {
+                if (state == Player.STATE_ENDED || state == Player.STATE_IDLE) {
+                    SharedPreferences sp = getSharedPreferences(
+                        BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
+                    if (sp.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)
+                            && !pausedByFocusLoss) {
+                        scheduleReconnect();
+                    }
+                }
+            }
         });
         registerNoisy();
+        registerNetworkCallback();
+    }
+
+    private void registerNetworkCallback() {
+        if (networkCallbackRegistered) return;
+        connectivityManager = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        if (connectivityManager == null) return;
+        networkCallback = new ConnectivityManager.NetworkCallback() {
+            @Override
+            public void onAvailable(Network network) {
+                SharedPreferences sp = getSharedPreferences(
+                    BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
+                if (!sp.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)) return;
+                if (player != null && player.isPlaying()) {
+                    reconnectAttempt = 0;
+                    return;
+                }
+                android.util.Log.i("RadioWatch", "network available → reconnect");
+                reconnectAttempt = 0;
+                if (reconnectHandler != null) {
+                    reconnectHandler.removeCallbacksAndMessages(null);
+                }
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                    lastPlayedUrl = "";
+                    lastPlayMs = 0;
+                    scheduleReconnect();
+                }, 500);
+            }
+
+            @Override
+            public void onLost(Network network) {
+                android.util.Log.i("RadioWatch", "network lost");
+                // буфер дограє; далі onPlayerError / IDLE запустять scheduleReconnect
+            }
+        };
+        try {
+            NetworkRequest req = new NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build();
+            connectivityManager.registerNetworkCallback(req, networkCallback);
+            networkCallbackRegistered = true;
+        } catch (Exception e) {
+            android.util.Log.e("RadioWatch", "registerNetworkCallback", e);
+        }
     }
 
     private void registerNoisy() {
@@ -166,51 +277,39 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         if (player == null) return;
         switch (focusChange) {
             case AudioManager.AUDIOFOCUS_LOSS:
-                // довга втрата (інший плеєр) — пауза, без авто-resume
-                if (player.isPlaying() || player.getPlayWhenReady()) {
-                    pausedByFocusLoss = false;
-                    player.pause();
-                    notifyForeground();
-                }
-                break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                // дзвінок / навігація — пауза, потім resume при GAIN
-                if (player.isPlaying() || player.getPlayWhenReady()) {
-                    pausedByFocusLoss = true;
-                    player.pause();
-                    notifyForeground();
-                }
-                break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
-                // для радіо краще теж пауза на дзвінок/сповіщення, ніж тихо грати
+                // відео / дзвінок / інший плеєр — пауза; resume на GAIN якщо intendedPlaying
                 if (player.isPlaying() || player.getPlayWhenReady()) {
                     pausedByFocusLoss = true;
                     player.pause();
                     notifyForeground();
-                } else {
-                    player.setVolume(0.3f);
                 }
                 break;
             case AudioManager.AUDIOFOCUS_GAIN:
                 player.setVolume(1f);
-                if (pausedByFocusLoss) {
+                if (!pausedByFocusLoss) break;
+                // невелика затримка: інший додаток ще відпускає focus
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                    if (player == null) return;
                     pausedByFocusLoss = false;
                     SharedPreferences sp = getSharedPreferences(
                         BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
                     boolean wantPlay = sp.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false);
-                    if (wantPlay) {
-                        player.setPlayWhenReady(true);
-                        if (player.getPlaybackState() == Player.STATE_IDLE
-                                || player.getPlaybackState() == Player.STATE_ENDED) {
-                            // якщо потік скинувся — перезапустити last URL
-                            String url = sp.getString(BluetoothAutoPlayPlugin.KEY_URL, "");
-                            if (url != null && !url.isEmpty()) {
-                                playUrl(url);
-                            }
+                    if (!wantPlay) return;
+                    int state = player.getPlaybackState();
+                    if (state == Player.STATE_IDLE || state == Player.STATE_ENDED
+                            || player.getCurrentMediaItem() == null) {
+                        String url = sp.getString(BluetoothAutoPlayPlugin.KEY_URL, "");
+                        if (url != null && !url.isEmpty()) playUrl(url);
+                    } else {
+                        if (!requestFocus()) {
+                            android.util.Log.w("RadioWatch", "focus re-request failed");
                         }
-                        notifyForeground();
+                        player.setPlayWhenReady(true);
                     }
-                }
+                    notifyForeground();
+                }, 400);
                 break;
         }
     }
@@ -340,9 +439,11 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             }
             lastPlayMs = now;
             lastPlayedUrl = url;
+            lastTrackTitle = "";
             player.setMediaItem(MediaItem.fromUri(url));
             player.prepare();
             player.setPlayWhenReady(true);
+            reconnectAttempt = 0;
             notifyForeground();
         } catch (Exception e) {
             android.util.Log.e("RadioWatch", "playUrl failed: " + url, e);
@@ -351,6 +452,63 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             } catch (Exception ignored) {}
             notifyForeground();
         }
+    }
+
+
+    private void publishTrack(String title) {
+        if (title == null) return;
+        title = title.replace("StreamTitle=", "").replace("'", "").trim();
+        if (title.isEmpty() || title.equalsIgnoreCase(currentName)) return;
+        if (title.equals(lastTrackTitle)) return;
+        lastTrackTitle = title;
+        getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
+            .edit().putString("lastTrackTitle", title).apply();
+        Intent i = new Intent(ACTION_TRACK_META);
+        i.setPackage(getPackageName());
+        i.putExtra(EXTRA_TRACK, title);
+        sendBroadcast(i);
+        // оновити MediaSession / нотифікацію підказкою
+        notifyForeground();
+    }
+
+    private android.os.Handler reconnectHandler;
+    private int reconnectAttempt = 0;
+    private static final int RECONNECT_MAX = 20;
+
+    private void scheduleReconnect() {
+        SharedPreferences sp = getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
+        if (!sp.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)) return;
+        if (reconnectHandler == null) {
+            reconnectHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        }
+        reconnectHandler.removeCallbacksAndMessages(null);
+        long delay = Math.min(45000L, 1000L * (1L << Math.min(reconnectAttempt, 5)));
+        // 1s, 2s, 4s, 8s, 16s, 30s...
+        final int attempt = reconnectAttempt;
+        reconnectHandler.postDelayed(() -> {
+            if (player == null) return;
+            SharedPreferences p = getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
+            if (!p.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)) return;
+            if (player.isPlaying()) {
+                reconnectAttempt = 0;
+                return;
+            }
+            String url = p.getString(BluetoothAutoPlayPlugin.KEY_URL, "");
+            android.util.Log.i("RadioWatch", "reconnect attempt " + attempt + " url=" + url);
+            if (url != null && !url.isEmpty()) {
+                reconnectAttempt = attempt + 1;
+                if (reconnectAttempt > RECONNECT_MAX) reconnectAttempt = RECONNECT_MAX;
+                // скинути duplicate-guard щоб playUrl реально перепідключив
+                lastPlayedUrl = "";
+                lastPlayMs = 0;
+                playUrl(url);
+                if (!player.isPlaying()) {
+                    scheduleReconnect();
+                } else {
+                    reconnectAttempt = 0;
+                }
+            }
+        }, delay);
     }
 
     private void createChannel() {
@@ -398,7 +556,10 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
 
         NotificationCompat.Builder b = new NotificationCompat.Builder(this, CHANNEL)
             .setContentTitle("Radio S O")
-            .setContentText(playing ? ("Грає: " + currentName) : "На паузі / стежить за BT")
+            .setContentText(playing
+                ? ((lastTrackTitle != null && !lastTrackTitle.isEmpty())
+                    ? lastTrackTitle : ("Грає: " + currentName))
+                : "На паузі / стежить за BT")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(pi)
             .setOngoing(true)
@@ -421,6 +582,13 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         if (noisyRegistered) {
             try { unregisterReceiver(noisyReceiver); } catch (Exception ignored) {}
             noisyRegistered = false;
+        }
+        if (networkCallbackRegistered && connectivityManager != null && networkCallback != null) {
+            try { connectivityManager.unregisterNetworkCallback(networkCallback); } catch (Exception ignored) {}
+            networkCallbackRegistered = false;
+        }
+        if (reconnectHandler != null) {
+            reconnectHandler.removeCallbacksAndMessages(null);
         }
         abandonFocus();
         if (mediaSession != null) {
