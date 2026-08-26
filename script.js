@@ -239,7 +239,7 @@ document.addEventListener("DOMContentLoaded", () => {
     updatePastSearches();
     populateSearchSuggestions();
     renderTabs();
-    setupPullToRefresh();
+    /* setupPullToRefresh disabled (native) */;
     setupLazyLoading();
     
     // Завантажуємо станції одразу
@@ -413,55 +413,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function setupPullToRefresh() {
-      let touchStartY = 0;
-      
-      stationList.addEventListener("touchstart", (e) => {
-        if (stationList.scrollTop === 0) {
-          touchStartY = e.touches[0].clientY;
-          pullIndicator.style.display = "flex";
-        }
-      }, { passive: true });
-
-      stationList.addEventListener("touchmove", (e) => {
-        if (dragEnabled) return;
-        if (touchStartY && stationList.scrollTop === 0) {
-          const currentY = e.touches[0].clientY;
-          const pullDistance = currentY - touchStartY;
-          
-          if (pullDistance > 0 && pullDistance < pullToRefreshThreshold) {
-            isPulling = true;
-            pullIndicator.style.transform = `translateY(${pullDistance}px)`;
-            pullIndicator.classList.add("pulling");
-          } else if (pullDistance >= pullToRefreshThreshold) {
-            isPulling = true;
-            pullIndicator.style.transform = `translateY(${pullToRefreshThreshold}px)`;
-            pullIndicator.classList.add("pulling");
-          }
-        }
-      }, { passive: true });
-
-      stationList.addEventListener("touchend", (e) => {
-        if (touchStartY && stationList.scrollTop === 0) {
-          const endY = e.changedTouches[0].clientY;
-          const pullDistance = endY - touchStartY;
-          
-          if (pullDistance >= pullToRefreshThreshold) {
-            showLoading();
-            loadStations().finally(() => {
-              hideLoading();
-              showToast("Станції оновлено!", "success");
-            });
-          }
-          
-          touchStartY = 0;
-          isPulling = false;
-          pullIndicator.classList.remove("pulling");
-          pullIndicator.style.transform = "";
-          setTimeout(() => {
-            pullIndicator.style.display = "none";
-          }, 300);
-        }
-      }, { passive: true });
+      /* disabled in native app */
     }
 
     function setupLazyLoading() {

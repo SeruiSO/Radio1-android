@@ -252,10 +252,6 @@
   transform: translateY(-1px);
 }
 
-.station-item[data-genre*="Techno"] { border-left: 3px solid var(--techno-color); }
-.station-item[data-genre*="Trance"] { border-left: 3px solid var(--trance-color); }
-.station-item[data-genre*="Pop"] { border-left: 3px solid var(--pop-color); }
-.station-item[data-genre*="Ukraine"] { border-left: 3px solid var(--ukraine-color); }
 
 .station-item .buttons-container {
   display: flex; align-items: center; gap: 6px;
@@ -542,6 +538,51 @@ h1::after {
 .wave-visualizer.playing svg path:nth-child(3) { animation-delay: 0.4s; opacity: 0.6; }
 
 /* ---- 3 control buttons: moderate radius, play stronger ---- */
+
+/* Bars equalizer visualizer */
+.wave-visualizer.bars-visualizer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+  margin-left: auto;
+  order: 3;
+  width: 56px;
+  height: 36px;
+  position: relative;
+  overflow: hidden;
+}
+.wave-visualizer.bars-visualizer .bar {
+  display: block;
+  width: 4px;
+  height: 30%;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.35;
+  transform-origin: bottom center;
+  transition: opacity 0.2s ease;
+}
+.wave-visualizer.bars-visualizer.playing .bar {
+  opacity: 1;
+  animation: barPulse 0.9s ease-in-out infinite;
+}
+.wave-visualizer.bars-visualizer.playing .bar:nth-child(1) { animation-duration: 0.7s; animation-delay: 0.05s; }
+.wave-visualizer.bars-visualizer.playing .bar:nth-child(2) { animation-duration: 1.0s; animation-delay: 0.15s; }
+.wave-visualizer.bars-visualizer.playing .bar:nth-child(3) { animation-duration: 0.75s; animation-delay: 0.0s; }
+.wave-visualizer.bars-visualizer.playing .bar:nth-child(4) { animation-duration: 1.1s; animation-delay: 0.2s; }
+.wave-visualizer.bars-visualizer.playing .bar:nth-child(5) { animation-duration: 0.85s; animation-delay: 0.1s; }
+.wave-visualizer.bars-visualizer.playing .bar:nth-child(6) { animation-duration: 0.95s; animation-delay: 0.25s; }
+.wave-visualizer.bars-visualizer.playing .bar:nth-child(7) { animation-duration: 0.8s; animation-delay: 0.12s; }
+@keyframes barPulse {
+  0%, 100% { height: 22%; }
+  50% { height: 100%; }
+}
+.wave-visualizer.bars-visualizer:not(.playing) .bar {
+  animation: none;
+  height: 22%;
+  opacity: 0.25;
+}
+
 .control-btn {
   width: 88px; height: 88px;
   font-size: 30px;

@@ -36,11 +36,6 @@
     <!-- Toast Container -->
     <div class="toast-container" id="toastContainer" role="alert"></div>
 
-    <!-- Pull to Refresh Indicator -->
-    <div class="pull-indicator" id="pullIndicator" style="display: none;">
-      <i>↓</i>
-    </div>
-
     <!-- Current Station Info -->
     <div id="currentStationInfo" role="region" aria-label="Інформація про поточну станцію">
       <div class="station-info-content">
@@ -51,13 +46,10 @@
           <div class="station-country" aria-label="Країна">країна: -</div>
           <div class="current-track" id="currentTrack" aria-label="Поточний трек">🎵 Трек: невідомо</div>
         </div>
-        <!-- Сучасний хвильовий візуалізатор -->
-        <div class="wave-visualizer" aria-hidden="true">
-          <svg viewBox="0 0 100 60" preserveAspectRatio="none">
-            <path d="M10,30 Q20,10 30,30 T50,30 T70,30 T90,30" stroke="var(--accent)" fill="none" stroke-width="2"/>
-            <path d="M10,30 Q20,50 30,30 T50,30 T70,30 T90,30" stroke="var(--accent)" fill="none" stroke-width="2" opacity="0.7"/>
-            <path d="M10,30 Q20,20 30,30 T50,30 T70,30 T90,30" stroke="var(--accent)" fill="none" stroke-width="2" opacity="0.4"/>
-          </svg>
+        <!-- Bars visualizer -->
+        <div class="wave-visualizer bars-visualizer" aria-hidden="true">
+          <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+          <span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span>
         </div>
       </div>
     </div>
