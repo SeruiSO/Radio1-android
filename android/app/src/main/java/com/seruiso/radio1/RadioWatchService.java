@@ -193,29 +193,42 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         networkCallback = new ConnectivityManager.NetworkCallback() {
             @Override
             public void onAvailable(Network network) {
-                SharedPreferences sp = getSharedPreferences(
-                    BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
-                if (!sp.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)) return;
-                if (player != null && player.isPlaying()) {
+                // ConnectivityThread → усі звернення до player тільки на main
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                    SharedPreferences sp = getSharedPreferences(
+                        BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
+                    if (!sp.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)) return;
+                    if (player != null && player.isPlaying()) {
+                        reconnectAttempt = 0;
+                        return;
+                    }
+                    android.util.Log.i("RadioWatch", "network available → reconnect");
                     reconnectAttempt = 0;
-                    return;
-                }
-                android.util.Log.i("RadioWatch", "network available → reconnect");
-                reconnectAttempt = 0;
-                if (reconnectHandler != null) {
-                    reconnectHandler.removeCallbacksAndMessages(null);
-                }
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                    if (reconnectHandler != null) {
+                        reconnectHandler.removeCallbacksAndMessages(null);
+                    }
                     lastPlayedUrl = "";
                     lastPlayMs = 0;
-                    scheduleReconnect();
-                }, 500);
+                    // невелика пауза поки мережа стабілізується
+                    if (reconnectHandler == null) {
+                        reconnectHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+                    }
+                    reconnectHandler.postDelayed(() -> {
+                        String url = sp.getString(BluetoothAutoPlayPlugin.KEY_URL, "");
+                        if (url != null && !url.isEmpty()) {
+                            playUrl(url);
+                        } else {
+                            scheduleReconnect();
+                        }
+                    }, 700);
+                });
             }
 
             @Override
             public void onLost(Network network) {
-                android.util.Log.i("RadioWatch", "network lost");
-                // буфер дограє; далі onPlayerError / IDLE запустять scheduleReconnect
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
+                    android.util.Log.i("RadioWatch", "network lost")
+                );
             }
         };
         try {
