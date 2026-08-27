@@ -383,6 +383,8 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
 
         if (ACTION_STOP.equals(action)) {
             pausedByFocusLoss = false;
+            getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
+                .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false).apply();
             if (player != null) {
                 player.stop();
                 player.clearMediaItems();
@@ -394,18 +396,24 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         }
 
         if (ACTION_PAUSE.equals(action) || ACTION_NOTIF_PAUSE.equals(action)) {
-            pausedByFocusLoss = false; // пауза від користувача — не resume після дзвінка
+            pausedByFocusLoss = false; // пауза від користувача — не resume
+            getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
+                .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false).apply();
             if (player != null) player.pause();
             notifyForeground();
             return START_STICKY;
         }
 
         if (ACTION_PLAY.equals(action) || ACTION_BT.equals(action) || ACTION_NOTIF_PLAY.equals(action)) {
+            getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
+                .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, true).apply();
             playLast();
             return START_STICKY;
         }
 
         if (ACTION_PLAY_URL.equals(action) && intent != null) {
+            getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
+                .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, true).apply();
             String url = intent.getStringExtra(EXTRA_URL);
             String name = intent.getStringExtra(EXTRA_NAME);
             if (name != null && !name.isEmpty()) currentName = name;

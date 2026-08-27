@@ -945,10 +945,15 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         
         if (cleanTrack.length > 50) {
-          currentTrackElement.classList.add('marquee');
-          currentTrackElement.textContent = `🎵 ${cleanTrack}`;
+          currentTrackElement.classList.remove('is-empty');
+          currentTrackElement.classList.remove('marquee');
+          currentTrackElement.classList.remove("is-empty");
+        currentTrackElement.classList.remove("marquee");
+        currentTrackElement.textContent = `🎵 ${cleanTrack}`;
         } else {
-          currentTrackElement.textContent = `🎵 ${cleanTrack}`;
+          currentTrackElement.classList.remove("is-empty");
+        currentTrackElement.classList.remove("marquee");
+        currentTrackElement.textContent = `🎵 ${cleanTrack}`;
         }
         
         currentTrackElement.title = cleanTrack;
@@ -958,12 +963,16 @@ document.addEventListener("DOMContentLoaded", () => {
         currentTrackElement.classList.add("loading");
         currentTrack = "";
       } else if (track === "—" || track === "-") {
+        currentTrackElement.classList.add("is-empty");
+        currentTrackElement.classList.remove("marquee");
         currentTrackElement.textContent = "🎵 Трек: —";
         currentTrack = "";
       } else {
         // Якщо трек не визначено
         if (isNativeApp()) {
-          currentTrackElement.textContent = "🎵 Трек: —";
+          currentTrackElement.classList.add("is-empty");
+        currentTrackElement.classList.remove("marquee");
+        currentTrackElement.textContent = "🎵 Трек: —";
           currentTrack = "";
         } else {
           const stationName = stationItems?.[currentIndex]?.dataset?.name || "unknown";
