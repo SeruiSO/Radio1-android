@@ -101,6 +101,12 @@ function applyNativePlaybackState(state) {
     isPlaying = true;
     localStorage.setItem("intendedPlaying", "true");
     localStorage.setItem("isPlaying", "true");
+  } else {
+    // пауза з шторки / керма / сервісу — UI має зупинити анімацію
+    intendedPlaying = false;
+    isPlaying = false;
+    localStorage.setItem("intendedPlaying", "false");
+    localStorage.setItem("isPlaying", "false");
   }
   let found = -1;
   if (stationItems && stationItems.length) {
@@ -152,11 +158,18 @@ function applyNativePlaybackState(state) {
     }
   } catch (e) { console.log("applyNative info", e); }
   const btn = document.querySelector(".controls .control-btn:nth-child(2)");
-  if (btn && (state.intendedPlaying || isPlaying)) {
-    btn.textContent = "⏸";
-    btn.classList.add("playing");
+  if (btn) {
+    if (state.intendedPlaying) {
+      btn.textContent = "⏸";
+      btn.classList.add("playing");
+      btn.setAttribute("aria-label", "Пауза");
+    } else {
+      btn.textContent = "▶";
+      btn.classList.remove("playing");
+      btn.setAttribute("aria-label", "Грати");
+    }
   }
-  try { updateWaveVisualizer(!!(state.intendedPlaying || isPlaying)); } catch (e) {}
+  try { updateWaveVisualizer(!!state.intendedPlaying); } catch (e) {}
   return true;
 }
 

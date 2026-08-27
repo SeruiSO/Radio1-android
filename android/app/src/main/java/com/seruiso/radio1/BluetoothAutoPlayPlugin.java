@@ -107,6 +107,11 @@ public class BluetoothAutoPlayPlugin extends Plugin {
         boolean value = Boolean.TRUE.equals(call.getBoolean("value", true));
         SharedPreferences p = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         p.edit().putBoolean(KEY_BT_WATCH, value).apply();
+        try {
+            Intent svc = new Intent(getContext(), RadioWatchService.class);
+            svc.setAction(RadioWatchService.ACTION_START);
+            startSvc(svc);
+        } catch (Exception ignored) {}
         call.resolve();
     }
 

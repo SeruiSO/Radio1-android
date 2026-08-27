@@ -404,7 +404,19 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             return START_STICKY;
         }
 
-        if (ACTION_PLAY.equals(action) || ACTION_BT.equals(action) || ACTION_NOTIF_PLAY.equals(action)) {
+        if (ACTION_BT.equals(action)) {
+            SharedPreferences spBt = getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
+            if (!spBt.getBoolean(BluetoothAutoPlayPlugin.KEY_BT_WATCH, true)) {
+                android.util.Log.i("RadioWatch", "ACTION_BT ignored — BT watch off");
+                notifyForeground();
+                return START_STICKY;
+            }
+            spBt.edit().putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, true).apply();
+            playLast();
+            return START_STICKY;
+        }
+
+        if (ACTION_PLAY.equals(action) || ACTION_NOTIF_PLAY.equals(action)) {
             getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
                 .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, true).apply();
             playLast();
@@ -580,7 +592,10 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             .setContentText(playing
                 ? ((lastTrackTitle != null && !lastTrackTitle.isEmpty())
                     ? lastTrackTitle : ("Грає: " + currentName))
-                : "На паузі / стежить за BT")
+                : (getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
+                        .getBoolean(BluetoothAutoPlayPlugin.KEY_BT_WATCH, true)
+                    ? "На паузі · BT стеження увімк"
+                    : "На паузі · BT стеження вимк"))
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(pi)
             .setOngoing(true)
