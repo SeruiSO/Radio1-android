@@ -102,7 +102,6 @@ function applyNativePlaybackState(state) {
     localStorage.setItem("intendedPlaying", "true");
     localStorage.setItem("isPlaying", "true");
   }
-  // Знайти в поточному списку
   let found = -1;
   if (stationItems && stationItems.length) {
     for (let i = 0; i < stationItems.length; i++) {
@@ -113,20 +112,45 @@ function applyNativePlaybackState(state) {
     }
   }
   if (found < 0 && idx >= 0 && stationItems && idx < stationItems.length) {
-    found = idx;
+    // підтвердити URL з черги
+    const byIdx = stationItems[idx];
+    if (byIdx && byIdx.dataset && byIdx.dataset.value === url) found = idx;
+    else if (found < 0 && byIdx) found = idx;
   }
   if (found >= 0 && stationItems[found]) {
     currentIndex = found;
     stationItems.forEach(function (el) { el.classList.remove("selected"); });
     stationItems[found].classList.add("selected");
-    try {
-      updateCurrentStation(stationItems[found]);
-    } catch (e) {}
-  } else {
-    // немає в списку — хоча б назву
-    const nameEl = document.querySelector("#currentStationInfo .station-name");
-    if (nameEl && name) nameEl.textContent = name;
+    try { stationItems[found].scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch (e) {}
   }
+  // Інфо-панель ЗАВЖДИ з DOM-рядка або з name/url (updateCurrentStation недоступний тут)
+  try {
+    const info = document.getElementById("currentStationInfo");
+    if (info) {
+      const item = (found >= 0 && stationItems[found]) ? stationItems[found] : null;
+      const nameEl = info.querySelector(".station-name");
+      const genreEl = info.querySelector(".station-genre");
+      const countryEl = info.querySelector(".station-country");
+      const iconEl = info.querySelector(".station-icon");
+      const dispName = (item && item.dataset.name) || name || lastStationName || "";
+      if (nameEl && dispName) nameEl.textContent = dispName;
+      if (genreEl) genreEl.textContent = "жанр: " + ((item && item.dataset.genre) || "-");
+      if (countryEl) countryEl.textContent = "країна: " + ((item && item.dataset.country) || "-");
+      if (iconEl) {
+        const fav = item && item.dataset.favicon ? item.dataset.favicon : "";
+        if (fav && (fav.indexOf("http://") === 0 || fav.indexOf("https://") === 0)) {
+          iconEl.innerHTML = "";
+          iconEl.style.backgroundImage = "url(" + fav + ")";
+          iconEl.style.backgroundSize = "contain";
+          iconEl.style.backgroundRepeat = "no-repeat";
+          iconEl.style.backgroundPosition = "center";
+        } else if (!iconEl.style.backgroundImage || iconEl.style.backgroundImage === "none") {
+          iconEl.innerHTML = "🎵";
+          iconEl.style.backgroundImage = "none";
+        }
+      }
+    }
+  } catch (e) { console.log("applyNative info", e); }
   const btn = document.querySelector(".controls .control-btn:nth-child(2)");
   if (btn && (state.intendedPlaying || isPlaying)) {
     btn.textContent = "⏸";
