@@ -399,19 +399,49 @@ h1 {
 
 .theme-toggle,
 .more-btn {
-  position: absolute; top: 10px;
+  position: absolute;
+  top: 8px;
   background: var(--surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
-  padding: 8px;
-  cursor: pointer; height: 40px; width: 40px;
-  display: flex; align-items: center; justify-content: center;
-  transition: all 0.2s ease; font-size: 18px; z-index: 20;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  height: 40px;
+  width: 40px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  font-size: 18px;
+  line-height: 1;
+  z-index: 20;
   color: var(--text);
 }
-.theme-toggle { left: 10px; }
-.more-menu { position: absolute; top: 10px; right: 10px; z-index: 30; }
-.more-btn { position: relative; top: 0; right: 0; font-size: 20px; font-weight: 700; }
+.theme-toggle { left: 10px; right: auto; }
+.more-menu {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  left: auto;
+  height: 40px;
+  width: 40px;
+  z-index: 30;
+  margin: 0;
+  padding: 0;
+}
+.more-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  bottom: 0;
+  width: 40px;
+  height: 40px;
+  font-size: 20px;
+  font-weight: 700;
+}
 .theme-toggle:hover,
 .more-btn:hover {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border-subtle));
@@ -765,9 +795,10 @@ input:focus-visible,
   .station-item { padding: 8px 10px; margin: 3px 0; }
   .station-item .station-name { font-size: 14px; }
   .station-item img { width: 36px; height: 36px; }
-  .theme-toggle, .more-btn { top: 8px; height: 36px; width: 36px; font-size: 16px; }
+  .theme-toggle, .more-btn { top: 6px; height: 36px; width: 36px; font-size: 16px; }
   .theme-toggle { left: 8px; }
-  .more-menu { top: 8px; right: 8px; }
+  .more-menu { top: 6px; right: 8px; height: 36px; width: 36px; }
+  .more-btn { width: 36px; height: 36px; }
   .tabs-wrapper { margin: 4px 0; }
   .tab-btn, .add-tab-btn { min-width: 56px; padding: 7px 12px; font-size: 12px; }
   .add-tab-btn { width: 36px; min-width: 36px; font-size: 16px; }
