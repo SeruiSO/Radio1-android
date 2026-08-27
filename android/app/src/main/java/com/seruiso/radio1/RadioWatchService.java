@@ -45,6 +45,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
     public static final String ACTION_NOTIF_PLAY = "com.seruiso.radio1.NOTIF_PLAY";
     public static final String ACTION_NOTIF_PAUSE = "com.seruiso.radio1.NOTIF_PAUSE";
     public static final String ACTION_TRACK_META = "com.seruiso.radio1.TRACK_META";
+    public static final String ACTION_PLAYBACK_UI = "com.seruiso.radio1.PLAYBACK_UI";
     public static final String EXTRA_TRACK = "track";
 
     public static final String EXTRA_URL = "url";
@@ -119,6 +120,44 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
                         .build();
             }
 
+            private boolean allowSessionPlay() {
+                SharedPreferences sp = getSharedPreferences(
+                    BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
+                boolean want = sp.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false);
+                if (want) return true;
+                boolean watch = sp.getBoolean(BluetoothAutoPlayPlugin.KEY_BT_WATCH, true);
+                long lastBt = sp.getLong("lastA2dpConnectMs", 0L);
+                long ago = System.currentTimeMillis() - lastBt;
+                // Авто-resume від системи одразу після BT — блокуємо, якщо не intended
+                if (ago >= 0 && ago < 4000) {
+                    android.util.Log.i("RadioWatch", "session play blocked after A2DP (watch="+watch+" want="+want+")");
+                    return false;
+                }
+                // поза вікном підключення — play з керма/шторки OK
+                return true;
+            }
+
+            @Override
+            public void play() {
+                if (!allowSessionPlay()) return;
+                getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
+                    .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, true).apply();
+                super.play();
+            }
+
+            @Override
+            public void setPlayWhenReady(boolean playWhenReady) {
+                if (playWhenReady && !allowSessionPlay()) {
+                    super.setPlayWhenReady(false);
+                    return;
+                }
+                if (playWhenReady) {
+                    getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
+                        .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, true).apply();
+                }
+                super.setPlayWhenReady(playWhenReady);
+            }
+
             @Override
             public void seekToNext() { skip(true); }
 
@@ -137,6 +176,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             @Override
             public void onIsPlayingChanged(boolean isPlaying) {
                 notifyForeground();
+                notifyUiPlayback(isPlaying);
             }
 
             @Override
@@ -368,6 +408,14 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         }
     }
 
+
+    private void notifyUiPlayback(boolean playing) {
+        Intent i = new Intent(ACTION_PLAYBACK_UI);
+        i.setPackage(getPackageName());
+        i.putExtra("playing", playing);
+        sendBroadcast(i);
+    }
+
     private void notifyUiSkip(boolean next) {
         // Не піднімаємо Activity з фону — лише sticky broadcast для живої UI
         Intent i = new Intent(next ? ACTION_MEDIA_NEXT : ACTION_MEDIA_PREV);
@@ -401,6 +449,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
                 .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false).apply();
             if (player != null) player.pause();
             notifyForeground();
+            notifyUiPlayback(false);
             return START_STICKY;
         }
 
@@ -460,8 +509,11 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
                     || player.getPlayWhenReady()
                     || (now - lastPlayMs < 1500))) {
                 android.util.Log.d("RadioWatch", "playUrl skip duplicate: " + url);
-                if (!player.isPlaying() && player.getPlayWhenReady() == false
-                        && player.getPlaybackState() != Player.STATE_IDLE) {
+                SharedPreferences spDup = getSharedPreferences(
+                    BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
+                if (!player.isPlaying() && !player.getPlayWhenReady()
+                        && player.getPlaybackState() != Player.STATE_IDLE
+                        && spDup.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)) {
                     player.setPlayWhenReady(true);
                 }
                 notifyForeground();

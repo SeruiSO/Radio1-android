@@ -33,6 +33,39 @@ let metadataRetryTimeout = null;
 let lastStationUrl = localStorage.getItem("lastStationUrl") || "";
 let lastStationName = localStorage.getItem("lastStationName") || "";
 
+
+function updateWaveVisualizerGlobal(playing) {
+  const waveVisualizer = document.querySelector(".wave-visualizer");
+  if (!waveVisualizer) return;
+  if (playing) waveVisualizer.classList.add("playing");
+  else waveVisualizer.classList.remove("playing");
+}
+function syncPlaybackUi(playing) {
+  isPlaying = !!playing;
+  intendedPlaying = !!playing;
+  localStorage.setItem("isPlaying", playing ? "true" : "false");
+  localStorage.setItem("intendedPlaying", playing ? "true" : "false");
+  const btn = document.querySelector(".controls .control-btn:nth-child(2)");
+  if (btn) {
+    if (playing) {
+      btn.textContent = "⏸";
+      btn.classList.add("playing");
+      btn.setAttribute("aria-label", "Пауза");
+    } else {
+      btn.textContent = "▶";
+      btn.classList.remove("playing");
+      btn.setAttribute("aria-label", "Грати");
+    }
+  }
+  updateWaveVisualizerGlobal(playing);
+}
+window.addEventListener("native-playback", function (ev) {
+  try {
+    const playing = !!(ev && ev.detail && ev.detail.playing);
+    syncPlaybackUi(playing);
+  } catch (e) {}
+});
+
 function getNativeAutoPlay() {
   try {
     return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BluetoothAutoPlay)
@@ -169,7 +202,8 @@ function applyNativePlaybackState(state) {
       btn.setAttribute("aria-label", "Грати");
     }
   }
-  try { updateWaveVisualizer(!!state.intendedPlaying); } catch (e) {}
+  try { updateWaveVisualizerGlobal(!!state.intendedPlaying); } catch (e) {}
+  try { if (typeof syncPlaybackUi === 'function' && !state.intendedPlaying) { /* already set flags */ updateWaveVisualizerGlobal(false); } } catch (e) {}
   return true;
 }
 

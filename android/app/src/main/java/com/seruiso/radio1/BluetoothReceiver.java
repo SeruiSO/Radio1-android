@@ -20,6 +20,11 @@ public class BluetoothReceiver extends BroadcastReceiver {
         return p.getBoolean(BluetoothAutoPlayPlugin.KEY_BT_WATCH, true);
     }
 
+    private void markA2dp(Context context) {
+        context.getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, Context.MODE_PRIVATE)
+            .edit().putLong("lastA2dpConnectMs", System.currentTimeMillis()).commit();
+    }
+
     @Override
     public void onReceive(Context context, Intent intent) {
         if (intent == null || intent.getAction() == null) return;
@@ -51,9 +56,12 @@ public class BluetoothReceiver extends BroadcastReceiver {
 
         if (connected == null) return;
 
-        // Стеження вимкнено — ні автоplay при BT, ні STOP при відключенні
+        if (connected && isA2dp) {
+            markA2dp(context);
+        }
+
         if (!isWatchEnabled(context)) {
-            android.util.Log.i("BluetoothReceiver", "BT watch disabled — ignore");
+            android.util.Log.i("BluetoothReceiver", "BT watch disabled — ignore connect/disconnect automation");
             return;
         }
 
