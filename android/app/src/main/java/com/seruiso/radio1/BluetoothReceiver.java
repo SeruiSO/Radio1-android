@@ -8,15 +8,21 @@ import android.bluetooth.BluetoothProfile;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 
 public class BluetoothReceiver extends BroadcastReceiver {
+    private boolean isWatchEnabled(Context context) {
+        SharedPreferences p = context.getSharedPreferences(
+            BluetoothAutoPlayPlugin.PREFS, Context.MODE_PRIVATE);
+        return p.getBoolean(BluetoothAutoPlayPlugin.KEY_BT_WATCH, true);
+    }
+
     @Override
     public void onReceive(Context context, Intent intent) {
         if (intent == null || intent.getAction() == null) return;
-
         String action = intent.getAction();
         Boolean connected = null;
         boolean isA2dp = false;
@@ -30,7 +36,6 @@ public class BluetoothReceiver extends BroadcastReceiver {
                 connected = false;
             }
         } else if (BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED.equals(action)) {
-            // не стартуємо play лише по headset — чекаємо A2DP
             int state = intent.getIntExtra(BluetoothProfile.EXTRA_STATE, BluetoothProfile.STATE_DISCONNECTED);
             if (state == BluetoothProfile.STATE_DISCONNECTED) {
                 connected = false;
@@ -43,14 +48,19 @@ public class BluetoothReceiver extends BroadcastReceiver {
                 connected = false;
             }
         }
-        // ACL_CONNECTED навмисно ігноруємо для PLAY — щоб не грати в динамік до готовності A2DP
 
         if (connected == null) return;
 
+        // Стеження вимкнено — ні автоplay при BT, ні STOP при відключенні
+        if (!isWatchEnabled(context)) {
+            android.util.Log.i("BluetoothReceiver", "BT watch disabled — ignore");
+            return;
+        }
+
         if (connected && isA2dp) {
-            // невелика затримка, поки профіль стабілізується
             final Context appCtx = context.getApplicationContext();
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                if (!isWatchEnabled(appCtx)) return;
                 Intent svc = new Intent(appCtx, RadioWatchService.class);
                 svc.setAction(RadioWatchService.ACTION_BT);
                 if (Build.VERSION.SDK_INT >= 26) {

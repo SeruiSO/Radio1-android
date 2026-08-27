@@ -160,6 +160,18 @@ function applyNativePlaybackState(state) {
   return true;
 }
 
+function nativeSetBtWatch(value) {
+  const plugin = getNativeAutoPlay();
+  if (!plugin || !plugin.setBtWatch) return Promise.resolve();
+  return plugin.setBtWatch({ value: !!value }).catch(function () {});
+}
+function nativeGetBtWatch() {
+  const plugin = getNativeAutoPlay();
+  if (!plugin || !plugin.getBtWatch) return Promise.resolve(true);
+  return plugin.getBtWatch().then(function (r) {
+    return r && r.value !== false;
+  }).catch(function () { return true; });
+}
 function nativeSaveQueue(urls, names, index) {
   const plugin = getNativeAutoPlay();
   if (!plugin) return;
@@ -343,6 +355,31 @@ document.addEventListener("DOMContentLoaded", () => {
       moreDropdown.hidden = true;
       moreMenuBtn.setAttribute("aria-expanded", "false");
     }
+
+    function refreshBtWatchLabel() {
+      const btn = document.getElementById("btWatchBtn");
+      if (!btn) return;
+      nativeGetBtWatch().then(function (on) {
+        btn.textContent = on ? "🔵 BT стеження: увімк" : "⚪ BT стеження: вимк";
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+    }
+    const btWatchBtn = document.getElementById("btWatchBtn");
+    if (btWatchBtn) {
+      btWatchBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        nativeGetBtWatch().then(function (on) {
+          const next = !on;
+          return nativeSetBtWatch(next).then(function () {
+            btWatchBtn.textContent = next ? "🔵 BT стеження: увімк" : "⚪ BT стеження: вимк";
+            btWatchBtn.setAttribute("aria-pressed", next ? "true" : "false");
+            showToast(next ? "BT стеження увімкнено" : "BT стеження вимкнено — автозапуск з BT не буде", next ? "success" : "info");
+          });
+        });
+      });
+      refreshBtWatchLabel();
+    }
+
     if (moreMenuBtn && moreDropdown) {
       moreMenuBtn.addEventListener("click", (e) => {
         e.stopPropagation();

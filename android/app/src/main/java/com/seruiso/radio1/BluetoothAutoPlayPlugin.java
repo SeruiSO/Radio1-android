@@ -30,6 +30,7 @@ public class BluetoothAutoPlayPlugin extends Plugin {
     public static final String KEY_QUEUE_URLS = "queueUrls";
     public static final String KEY_QUEUE_NAMES = "queueNames";
     public static final String KEY_QUEUE_INDEX = "queueIndex";
+    public static final String KEY_BT_WATCH = "btWatchEnabled";
 
     @PluginMethod
     public void saveStation(PluginCall call) {
@@ -99,6 +100,23 @@ public class BluetoothAutoPlayPlugin extends Plugin {
         call.resolve();
     }
 
+
+
+    @PluginMethod
+    public void setBtWatch(PluginCall call) {
+        boolean value = Boolean.TRUE.equals(call.getBoolean("value", true));
+        SharedPreferences p = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        p.edit().putBoolean(KEY_BT_WATCH, value).apply();
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void getBtWatch(PluginCall call) {
+        SharedPreferences p = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        JSObject o = new JSObject();
+        o.put("value", p.getBoolean(KEY_BT_WATCH, true));
+        call.resolve(o);
+    }
 
     @PluginMethod
     public void getPlaybackState(PluginCall call) {
