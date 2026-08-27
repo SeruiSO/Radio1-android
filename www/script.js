@@ -125,17 +125,19 @@ function applyNativePlaybackState(state) {
   const url = state.url;
   const name = state.name || "";
   const idx = typeof state.queueIndex === "number" ? state.queueIndex : -1;
+  const reallyPlaying = (typeof state.isPlaying === "boolean")
+    ? state.isPlaying
+    : !!state.intendedPlaying;
   lastStationUrl = url;
   lastStationName = name;
   localStorage.setItem("lastStationUrl", lastStationUrl);
   localStorage.setItem("lastStationName", lastStationName);
-  if (state.intendedPlaying) {
+  if (reallyPlaying || state.intendedPlaying) {
     intendedPlaying = true;
-    isPlaying = true;
+    isPlaying = !!reallyPlaying;
     localStorage.setItem("intendedPlaying", "true");
-    localStorage.setItem("isPlaying", "true");
+    localStorage.setItem("isPlaying", isPlaying ? "true" : "false");
   } else {
-    // пауза з шторки / керма / сервісу — UI має зупинити анімацію
     intendedPlaying = false;
     isPlaying = false;
     localStorage.setItem("intendedPlaying", "false");
@@ -191,8 +193,9 @@ function applyNativePlaybackState(state) {
     }
   } catch (e) { console.log("applyNative info", e); }
   const btn = document.querySelector(".controls .control-btn:nth-child(2)");
+  const uiPlaying = (typeof state.isPlaying === "boolean") ? state.isPlaying : !!state.intendedPlaying;
   if (btn) {
-    if (state.intendedPlaying) {
+    if (uiPlaying) {
       btn.textContent = "⏸";
       btn.classList.add("playing");
       btn.setAttribute("aria-label", "Пауза");
@@ -202,8 +205,18 @@ function applyNativePlaybackState(state) {
       btn.setAttribute("aria-label", "Грати");
     }
   }
-  try { updateWaveVisualizerGlobal(!!state.intendedPlaying); } catch (e) {}
-  try { if (typeof syncPlaybackUi === 'function' && !state.intendedPlaying) { /* already set flags */ updateWaveVisualizerGlobal(false); } } catch (e) {}
+  try { updateWaveVisualizerGlobal(!!uiPlaying); } catch (e) {}
+  try {
+    if (state.track && typeof state.track === "string" && state.track.trim()) {
+      const el = document.getElementById("currentTrack");
+      if (el && typeof window.__updateTrackDisplay === "function") {
+        window.__updateTrackDisplay(state.track.trim());
+      } else if (el) {
+        el.classList.remove("loading", "is-empty");
+        el.textContent = "🎵 Трек: " + state.track.trim();
+      }
+    }
+  } catch (e) {}
   return true;
 }
 
@@ -306,8 +319,10 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
     nativeRequestReady();
-    if (lastStationUrl) nativeSaveStation(lastStationUrl, lastStationName);
-    nativeSetPlaying(intendedPlaying);
+    if (!isNativeApp()) {
+      if (lastStationUrl) nativeSaveStation(lastStationUrl, lastStationName);
+      nativeSetPlaying(intendedPlaying);
+    }
     if (isNativeApp()) {
       audio.muted = true;
       audio.volume = 0;
@@ -327,6 +342,12 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // Завантажуємо станції одразу
     loadStations().then(() => {
+      /* NATIVE_RESUME_SYNC */
+      if (isNativeApp()) {
+        nativeGetPlaybackState().then(function (st) {
+          if (st) applyNativePlaybackState(st);
+        });
+      }
       // Після завантаження перемикаємося на поточний таб
       switchTab(currentTab);
       setTimeout(function(){ syncQueueToNative(); }, 400);
@@ -1027,6 +1048,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function updateTrackDisplay(track) {
+      try { window.__updateTrackDisplay = updateTrackDisplay; } catch (e) {}
       const currentTrackElement = document.getElementById("currentTrack");
       if (!currentTrackElement) return;
 

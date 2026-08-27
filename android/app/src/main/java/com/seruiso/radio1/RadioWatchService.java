@@ -175,6 +175,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         player.addListener(new Player.Listener() {
             @Override
             public void onIsPlayingChanged(boolean isPlaying) {
+                writePlayingFlag(isPlaying);
                 notifyForeground();
                 notifyUiPlayback(isPlaying);
             }
@@ -409,6 +410,34 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
     }
 
 
+
+    private void writePlayingFlag(boolean playing) {
+        getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
+            .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_IS_PLAYING, playing).apply();
+    }
+
+    private void applySessionMetadata(String station, String track) {
+        if (player == null) return;
+        try {
+            String title = (track != null && !track.isEmpty()) ? track : (station != null ? station : "Radio S O");
+            String artist = (station != null && !station.isEmpty()) ? station : "Radio S O";
+            MediaMetadata md = new MediaMetadata.Builder()
+                .setTitle(title)
+                .setArtist(artist)
+                .setDisplayTitle(title)
+                .setSubtitle(artist)
+                .build();
+            MediaItem current = player.getCurrentMediaItem();
+            if (current == null) return;
+            int idx = player.getCurrentMediaItemIndex();
+            if (idx < 0) idx = 0;
+            MediaItem updated = current.buildUpon().setMediaMetadata(md).build();
+            player.replaceMediaItem(idx, updated);
+        } catch (Exception e) {
+            android.util.Log.w("RadioWatch", "applySessionMetadata", e);
+        }
+    }
+
     private void notifyUiPlayback(boolean playing) {
         Intent i = new Intent(ACTION_PLAYBACK_UI);
         i.setPackage(getPackageName());
@@ -432,7 +461,8 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         if (ACTION_STOP.equals(action)) {
             pausedByFocusLoss = false;
             getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
-                .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false).apply();
+                .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)
+                .putBoolean(BluetoothAutoPlayPlugin.KEY_IS_PLAYING, false).apply();
             if (player != null) {
                 player.stop();
                 player.clearMediaItems();
@@ -446,7 +476,8 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         if (ACTION_PAUSE.equals(action) || ACTION_NOTIF_PAUSE.equals(action)) {
             pausedByFocusLoss = false; // пауза від користувача — не resume
             getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
-                .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false).apply();
+                .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)
+                .putBoolean(BluetoothAutoPlayPlugin.KEY_IS_PLAYING, false).apply();
             if (player != null) player.pause();
             notifyForeground();
             notifyUiPlayback(false);
@@ -525,10 +556,23 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             lastPlayMs = now;
             lastPlayedUrl = url;
             lastTrackTitle = "";
-            player.setMediaItem(MediaItem.fromUri(url));
+            getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
+                .edit().putString(BluetoothAutoPlayPlugin.KEY_TRACK, "").apply();
+            String st0 = currentName != null && !currentName.isEmpty() ? currentName : "Radio S O";
+            MediaItem item = new MediaItem.Builder()
+                .setUri(url)
+                .setMediaMetadata(new MediaMetadata.Builder()
+                    .setTitle(st0)
+                    .setArtist(st0)
+                    .setDisplayTitle(st0)
+                    .setSubtitle(st0)
+                    .build())
+                .build();
+            player.setMediaItem(item);
             player.prepare();
             player.setPlayWhenReady(true);
             reconnectAttempt = 0;
+            writePlayingFlag(true);
             notifyForeground();
         } catch (Exception e) {
             android.util.Log.e("RadioWatch", "playUrl failed: " + url, e);
@@ -547,12 +591,12 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         if (title.equals(lastTrackTitle)) return;
         lastTrackTitle = title;
         getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
-            .edit().putString("lastTrackTitle", title).apply();
+            .edit().putString(BluetoothAutoPlayPlugin.KEY_TRACK, title).apply();
         Intent i = new Intent(ACTION_TRACK_META);
         i.setPackage(getPackageName());
         i.putExtra(EXTRA_TRACK, title);
         sendBroadcast(i);
-        // оновити MediaSession / нотифікацію підказкою
+        applySessionMetadata(currentName, title);
         notifyForeground();
     }
 
@@ -643,7 +687,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             .setContentTitle("Radio S O")
             .setContentText(playing
                 ? ((lastTrackTitle != null && !lastTrackTitle.isEmpty())
-                    ? lastTrackTitle : ("Грає: " + currentName))
+                    ? (currentName + " · " + lastTrackTitle) : ("Грає: " + currentName))
                 : (getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
                         .getBoolean(BluetoothAutoPlayPlugin.KEY_BT_WATCH, true)
                     ? "На паузі · BT стеження увімк"

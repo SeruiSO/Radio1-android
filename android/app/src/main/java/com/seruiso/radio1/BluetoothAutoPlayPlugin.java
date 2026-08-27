@@ -31,6 +31,8 @@ public class BluetoothAutoPlayPlugin extends Plugin {
     public static final String KEY_QUEUE_NAMES = "queueNames";
     public static final String KEY_QUEUE_INDEX = "queueIndex";
     public static final String KEY_BT_WATCH = "btWatchEnabled";
+    public static final String KEY_IS_PLAYING = "isPlaying";
+    public static final String KEY_TRACK = "lastTrackTitle";
 
     @PluginMethod
     public void saveStation(PluginCall call) {
@@ -130,6 +132,8 @@ public class BluetoothAutoPlayPlugin extends Plugin {
         o.put("url", p.getString(KEY_URL, ""));
         o.put("name", p.getString(KEY_NAME, ""));
         o.put("intendedPlaying", p.getBoolean(KEY_PLAY, false));
+        o.put("isPlaying", p.getBoolean(KEY_IS_PLAYING, false));
+        o.put("track", p.getString(KEY_TRACK, ""));
         o.put("queueIndex", p.getInt(KEY_QUEUE_INDEX, 0));
         o.put("queueUrls", p.getString(KEY_QUEUE_URLS, "[]"));
         o.put("queueNames", p.getString(KEY_QUEUE_NAMES, "[]"));
