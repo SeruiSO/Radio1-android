@@ -34,6 +34,12 @@ public class MainActivity extends BridgeActivity {
             } else if (RadioWatchService.ACTION_PLAYBACK_UI.equals(intent.getAction())) {
                 boolean playing = intent.getBooleanExtra("playing", false);
                 runJs("window.dispatchEvent(new CustomEvent('native-playback',{detail:{playing:" + playing + "}}))");
+            } else if (RadioWatchService.ACTION_STATUS_UI.equals(intent.getAction())) {
+                String st = intent.getStringExtra("status");
+                int attempt = intent.getIntExtra("attempt", 0);
+                if (st == null) st = "";
+                String safe = st.replace("\\", "\\\\").replace("'", "\\'");
+                runJs("window.dispatchEvent(new CustomEvent('native-status',{detail:{status:'" + safe + "',attempt:" + attempt + "}}))");
             }
         }
     };
@@ -77,6 +83,7 @@ public class MainActivity extends BridgeActivity {
         f.addAction(RadioWatchService.ACTION_MEDIA_PREV);
         f.addAction(RadioWatchService.ACTION_TRACK_META);
         f.addAction(RadioWatchService.ACTION_PLAYBACK_UI);
+        f.addAction(RadioWatchService.ACTION_STATUS_UI);
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(skipReceiver, f, Context.RECEIVER_NOT_EXPORTED);
         } else {

@@ -868,3 +868,92 @@ body {
 #currentStationInfo {
   flex-shrink: 0;
 }
+
+
+/* --- 1.1.14: status / search / toast unify --- */
+.playback-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  min-height: 14px;
+  opacity: 0.9;
+}
+.playback-status.is-active { color: var(--accent); }
+
+.toast-container {
+  background: var(--toast-bg) !important;
+  color: var(--toast-text) !important;
+  border: 1px solid var(--border-subtle);
+}
+.toast-container.toast-success {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+.toast-container.toast-error {
+  border-color: color-mix(in srgb, #ff6b6b 50%, transparent);
+}
+.toast-container.toast-info {
+  border-color: var(--border-subtle);
+}
+
+#searchInput {
+  display: none;
+  margin: 6px 0;
+  padding: 0;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface);
+  overflow: hidden;
+}
+#searchInput.search-collapsed .search-fields[hidden] { display: none !important; }
+.search-toggle-bar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+.search-toggle-label { flex: 1; opacity: 0.85; }
+.search-toggle-chevron { opacity: 0.5; font-size: 12px; }
+#searchInput.is-expanded .search-toggle-chevron { transform: rotate(180deg); }
+.search-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+.search-fields input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--body-bg, #111);
+  color: var(--text);
+}
+.search-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px 10px;
+}
+.search-chip {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+#searchInput.search-open {
+  display: flex !important;
+  flex-direction: column;
+}

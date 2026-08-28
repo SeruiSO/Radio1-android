@@ -44,6 +44,9 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
     public static final String ACTION_MEDIA_PREV = "com.seruiso.radio1.MEDIA_PREV";
     public static final String ACTION_NOTIF_PLAY = "com.seruiso.radio1.NOTIF_PLAY";
     public static final String ACTION_NOTIF_PAUSE = "com.seruiso.radio1.NOTIF_PAUSE";
+    public static final String ACTION_NOTIF_NEXT = "com.seruiso.radio1.NOTIF_NEXT";
+    public static final String ACTION_NOTIF_PREV = "com.seruiso.radio1.NOTIF_PREV";
+    public static final String ACTION_STATUS_UI = "com.seruiso.radio1.STATUS_UI";
     public static final String ACTION_TRACK_META = "com.seruiso.radio1.TRACK_META";
     public static final String ACTION_PLAYBACK_UI = "com.seruiso.radio1.PLAYBACK_UI";
     public static final String EXTRA_TRACK = "track";
@@ -68,6 +71,10 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
     private ConnectivityManager connectivityManager;
     private ConnectivityManager.NetworkCallback networkCallback;
     private boolean networkCallbackRegistered = false;
+    private long networkLostAtMs = 0L;
+    private android.os.Handler silenceHandler;
+    private Runnable silenceCheck;
+    private int bufferingTicks = 0;
 
     private final BroadcastReceiver noisyReceiver = new BroadcastReceiver() {
         @Override
@@ -234,42 +241,58 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         networkCallback = new ConnectivityManager.NetworkCallback() {
             @Override
             public void onAvailable(Network network) {
-                // ConnectivityThread → усі звернення до player тільки на main
                 new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
-                    SharedPreferences sp = getSharedPreferences(
-                        BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
-                    if (!sp.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)) return;
-                    if (player != null && player.isPlaying()) {
-                        reconnectAttempt = 0;
-                        return;
-                    }
-                    android.util.Log.i("RadioWatch", "network available → reconnect");
-                    reconnectAttempt = 0;
-                    if (reconnectHandler != null) {
-                        reconnectHandler.removeCallbacksAndMessages(null);
-                    }
-                    lastPlayedUrl = "";
-                    lastPlayMs = 0;
-                    // невелика пауза поки мережа стабілізується
-                    if (reconnectHandler == null) {
-                        reconnectHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-                    }
-                    reconnectHandler.postDelayed(() -> {
-                        String url = sp.getString(BluetoothAutoPlayPlugin.KEY_URL, "");
-                        if (url != null && !url.isEmpty()) {
-                            playUrl(url);
-                        } else {
-                            scheduleReconnect();
+                    try {
+                        long lostAgo = networkLostAtMs > 0
+                            ? (System.currentTimeMillis() - networkLostAtMs) : Long.MAX_VALUE;
+                        networkLostAtMs = 0L;
+                        SharedPreferences sp = getSharedPreferences(
+                            BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
+                        if (!sp.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)) return;
+                        if (player != null && player.isPlaying()) {
+                            reconnectAttempt = 0;
+                            notifyUiStatus("playing", 0);
+                            return;
                         }
-                    }, 700);
+                        // короткий обрив (<2с) і ще buffering — почекати, не форсувати
+                        if (lostAgo < 2000 && player != null
+                                && player.getPlayWhenReady()) {
+                            android.util.Log.i("RadioWatch", "brief network gap, wait");
+                            return;
+                        }
+                        android.util.Log.i("RadioWatch", "network available → reconnect");
+                        notifyUiStatus("reconnecting", reconnectAttempt + 1);
+                        reconnectAttempt = 0;
+                        if (reconnectHandler != null) {
+                            reconnectHandler.removeCallbacksAndMessages(null);
+                        }
+                        lastPlayedUrl = "";
+                        lastPlayMs = 0;
+                        if (reconnectHandler == null) {
+                            reconnectHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+                        }
+                        reconnectHandler.postDelayed(() -> {
+                            try {
+                                String url = sp.getString(BluetoothAutoPlayPlugin.KEY_URL, "");
+                                if (url != null && !url.isEmpty()) playUrl(url);
+                                else scheduleReconnect();
+                            } catch (Exception e) {
+                                android.util.Log.e("RadioWatch", "reconnect", e);
+                            }
+                        }, 700);
+                    } catch (Exception e) {
+                        android.util.Log.e("RadioWatch", "onAvailable", e);
+                    }
                 });
             }
 
             @Override
             public void onLost(Network network) {
-                new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
-                    android.util.Log.i("RadioWatch", "network lost")
-                );
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                    networkLostAtMs = System.currentTimeMillis();
+                    android.util.Log.i("RadioWatch", "network lost (grace)");
+                    // не стопаємо плеєр — короткий gap у місті
+                });
             }
         };
         try {
@@ -438,6 +461,65 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         }
     }
 
+    private void notifyUiStatus(String status, int attempt) {
+        try {
+            Intent i = new Intent(ACTION_STATUS_UI);
+            i.setPackage(getPackageName());
+            i.putExtra("status", status == null ? "" : status);
+            i.putExtra("attempt", attempt);
+            sendBroadcast(i);
+        } catch (Exception ignored) {}
+    }
+
+    private void armSilenceWatch() {
+        if (silenceHandler == null) {
+            silenceHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        }
+        if (silenceCheck != null) silenceHandler.removeCallbacks(silenceCheck);
+        silenceCheck = new Runnable() {
+            @Override public void run() {
+                try {
+                    if (player == null) return;
+                    SharedPreferences sp = getSharedPreferences(
+                        BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
+                    if (!sp.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)) {
+                        bufferingTicks = 0;
+                        return;
+                    }
+                    int st = player.getPlaybackState();
+                    boolean playing = player.isPlaying();
+                    // «тиша» / довгий buffering при intended play
+                    if (!playing && (st == Player.STATE_BUFFERING
+                            || st == Player.STATE_IDLE
+                            || st == Player.STATE_ENDED)) {
+                        bufferingTicks++;
+                        if (bufferingTicks == 1) {
+                            notifyUiStatus("buffering", reconnectAttempt);
+                        }
+                        if (bufferingTicks >= 8) { // ~8 * 3s ≈ 24s
+                            android.util.Log.w("RadioWatch", "silence/buffer timeout → reconnect");
+                            notifyUiStatus("reconnecting", reconnectAttempt + 1);
+                            bufferingTicks = 0;
+                            lastPlayedUrl = "";
+                            lastPlayMs = 0;
+                            scheduleReconnect();
+                            return;
+                        }
+                    } else if (playing) {
+                        if (bufferingTicks > 0) notifyUiStatus("playing", 0);
+                        bufferingTicks = 0;
+                    }
+                } catch (Exception e) {
+                    android.util.Log.w("RadioWatch", "silenceCheck", e);
+                }
+                if (silenceHandler != null && silenceCheck != null) {
+                    silenceHandler.postDelayed(silenceCheck, 3000);
+                }
+            }
+        };
+        silenceHandler.postDelayed(silenceCheck, 3000);
+    }
+
     private void notifyUiPlayback(boolean playing) {
         Intent i = new Intent(ACTION_PLAYBACK_UI);
         i.setPackage(getPackageName());
@@ -500,6 +582,15 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
                 .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, true).apply();
             playLast();
+            return START_STICKY;
+        }
+
+        if (ACTION_NOTIF_NEXT.equals(action)) {
+            skip(true);
+            return START_STICKY;
+        }
+        if (ACTION_NOTIF_PREV.equals(action)) {
+            skip(false);
             return START_STICKY;
         }
 
@@ -572,6 +663,8 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             player.setPlayWhenReady(true);
             reconnectAttempt = 0;
             writePlayingFlag(true);
+            notifyUiStatus("connecting", 0);
+            bufferingTicks = 0;
             notifyForeground();
         } catch (Exception e) {
             android.util.Log.e("RadioWatch", "playUrl failed: " + url, e);
@@ -682,15 +775,35 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
+        Intent prevI = new Intent(this, RadioWatchService.class);
+        prevI.setAction(ACTION_NOTIF_PREV);
+        PendingIntent prevPi = PendingIntent.getService(
+            this, 3, prevI,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+        Intent nextI = new Intent(this, RadioWatchService.class);
+        nextI.setAction(ACTION_NOTIF_NEXT);
+        PendingIntent nextPi = PendingIntent.getService(
+            this, 4, nextI,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        String body;
+        if (playing) {
+            if (lastTrackTitle != null && !lastTrackTitle.isEmpty())
+                body = currentName + " · " + lastTrackTitle;
+            else
+                body = "Грає: " + currentName;
+        } else {
+            body = getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
+                    .getBoolean(BluetoothAutoPlayPlugin.KEY_BT_WATCH, true)
+                ? "На паузі · BT стеження увімк"
+                : "На паузі · BT стеження вимк";
+        }
+
         NotificationCompat.Builder b = new NotificationCompat.Builder(this, CHANNEL)
-            .setContentTitle("Radio S O")
-            .setContentText(playing
-                ? ((lastTrackTitle != null && !lastTrackTitle.isEmpty())
-                    ? (currentName + " · " + lastTrackTitle) : ("Грає: " + currentName))
-                : (getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
-                        .getBoolean(BluetoothAutoPlayPlugin.KEY_BT_WATCH, true)
-                    ? "На паузі · BT стеження увімк"
-                    : "На паузі · BT стеження вимк"))
+            .setContentTitle(currentName != null ? currentName : "Radio S O")
+            .setContentText(body)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(pi)
             .setOngoing(true)
@@ -698,13 +811,15 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setStyle(new androidx.media.app.NotificationCompat.MediaStyle()
-                .setShowActionsInCompactView(0));
+                .setShowActionsInCompactView(0, 1, 2));
 
+        b.addAction(android.R.drawable.ic_media_previous, "Назад", prevPi);
         if (playing) {
             b.addAction(android.R.drawable.ic_media_pause, "Пауза", pausePi);
         } else {
             b.addAction(android.R.drawable.ic_media_play, "Грати", playPi);
         }
+        b.addAction(android.R.drawable.ic_media_next, "Далі", nextPi);
         return b.build();
     }
 

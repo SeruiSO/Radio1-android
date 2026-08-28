@@ -24,6 +24,7 @@
         <button type="button" class="more-item export-button" aria-label="Експорт">📤 Експорт</button>
         <button type="button" class="more-item import-button" aria-label="Імпорт">📥 Імпорт</button>
         <button type="button" class="more-item bt-watch-btn" id="btWatchBtn" aria-label="BT стеження">🔵 BT стеження: увімк</button>
+        <button type="button" class="more-item" id="sleepTimerBtn" aria-label="Таймер сну">⏱ Таймер сну</button>
       </div>
     </div>
     <input type="file" id="importFileInput" accept="application/json" aria-label="Файл для імпорту налаштувань">
@@ -46,6 +47,7 @@
           <div class="station-genre" aria-label="Жанр">жанр: -</div>
           <div class="station-country" aria-label="Країна">країна: -</div>
           <div class="current-track" id="currentTrack" aria-label="Поточний трек">🎵 Трек: невідомо</div>
+          <div class="playback-status" id="playbackStatus" aria-live="polite"></div>
         </div>
         <!-- Bars visualizer -->
         <div class="wave-visualizer bars-visualizer" aria-hidden="true">
@@ -66,14 +68,22 @@
     </div>
 
     <!-- Search Input -->
-    <div id="searchInput" role="search" aria-label="Пошук станцій" style="display: none;">
-      <input id="searchQuery" list="pastSearches" placeholder="Введіть назву станції" aria-label="Пошук за назвою станції">
-      <datalist id="pastSearches"></datalist>
-      <input id="searchCountry" list="suggestedCountries" placeholder="Введіть країну" aria-label="Пошук за країною">
-      <datalist id="suggestedCountries"></datalist>
-      <input id="searchGenre" list="suggestedGenres" placeholder="Введіть жанр" aria-label="Пошук за жанром">
-      <datalist id="suggestedGenres"></datalist>
-      <button class="search-btn" aria-label="Виконати пошук">🔍 Пошук</button>
+    <div id="searchInput" role="search" aria-label="Пошук станцій" style="display: none;" class="search-collapsed">
+      <button type="button" class="search-toggle-bar" id="searchToggleBar" aria-expanded="false">
+        <span class="search-toggle-icon">🔍</span>
+        <span class="search-toggle-label" id="searchToggleLabel">Пошук…</span>
+        <span class="search-toggle-chevron">▾</span>
+      </button>
+      <div class="search-fields" id="searchFields" hidden>
+        <input id="searchQuery" list="pastSearches" placeholder="Назва станції" aria-label="Пошук за назвою станції">
+        <datalist id="pastSearches"></datalist>
+        <input id="searchCountry" list="suggestedCountries" placeholder="Країна" aria-label="Пошук за країною">
+        <datalist id="suggestedCountries"></datalist>
+        <input id="searchGenre" list="suggestedGenres" placeholder="Жанр" aria-label="Пошук за жанром">
+        <datalist id="suggestedGenres"></datalist>
+        <button class="search-btn" aria-label="Виконати пошук">🔍 Знайти</button>
+      </div>
+      <div class="search-chips" id="searchChips" hidden></div>
     </div>
 
     <!-- Controls -->
