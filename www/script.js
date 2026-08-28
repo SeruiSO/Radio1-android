@@ -1,4 +1,5 @@
 let currentTab = localStorage.getItem("currentTab") || "techno";
+if (currentTab === "history") { currentTab = "techno"; localStorage.setItem("currentTab", "techno"); }
 let currentIndex = 0;
 let favoriteStations = JSON.parse(localStorage.getItem("favoriteStations")) || [];
 let isPlaying = localStorage.getItem("isPlaying") === "true" || false;
@@ -37,15 +38,6 @@ try { recentStations = JSON.parse(localStorage.getItem("recentStations") || "[]"
 let sleepTimerId = null;
 let searchPanelOpen = false;
 
-function pushRecentStation(url, name, genre, country, favicon) {
-  if (!url) return;
-  try {
-    recentStations = (recentStations || []).filter(function (s) { return s && s.url !== url; });
-    recentStations.unshift({ url: url, name: name || "", genre: genre || "", country: country || "", favicon: favicon || "", ts: Date.now() });
-    if (recentStations.length > 10) recentStations = recentStations.slice(0, 10);
-    localStorage.setItem("recentStations", JSON.stringify(recentStations));
-  } catch (e) {}
-}
 function setPlaybackStatus(text, active) {
   try {
     var el = document.getElementById("playbackStatus");
@@ -343,6 +335,8 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeApp();
 
   function initializeApp() {
+    try { localStorage.removeItem("recentStations"); } catch (e) {} /* recentStations_cleanup */
+
     if (isNativeApp() && "serviceWorker" in navigator) {
       navigator.serviceWorker.getRegistrations().then(function (regs) {
         regs.forEach(function (r) { r.unregister(); });
@@ -532,6 +526,7 @@ document.addEventListener("DOMContentLoaded", () => {
       sleepTimerMenu.querySelectorAll(".sleep-opt").forEach(function (btn) {
         btn.addEventListener("click", function (e) {
           e.stopPropagation();
+          e.preventDefault();
           const mins = parseInt(btn.getAttribute("data-mins"), 10) || 0;
           closeSleepMenu();
           if (mins <= 0) {
@@ -540,6 +535,12 @@ document.addEventListener("DOMContentLoaded", () => {
           } else {
             armSleepTimer(mins);
           }
+          // закрити ⋯ лише після вибору
+          try { if (typeof closeMoreMenu === "function") closeMoreMenu(); } catch (err) {}
+          try {
+            if (moreDropdown) moreDropdown.hidden = true;
+            if (moreMenuBtn) moreMenuBtn.setAttribute("aria-expanded", "false");
+          } catch (err) {}
         });
       });
       document.addEventListener("click", function (e) {
@@ -562,7 +563,14 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       });
       moreDropdown.querySelectorAll(".more-item").forEach((btn) => {
-        btn.addEventListener("click", () => setTimeout(closeMoreMenu, 50));
+        btn.addEventListener("click", (ev) => {
+          // таймер сну — лишаємо меню відкритим, щоб вибрати хвилини
+          if (btn.id === "sleepTimerBtn" || btn.closest(".sleep-wrap")) {
+            ev.stopPropagation();
+            return;
+          }
+          setTimeout(closeMoreMenu, 50);
+        });
       });
     }
 
@@ -906,7 +914,7 @@ searchBtn.addEventListener("click", () => {
             localStorage.setItem("deletedStations", JSON.stringify(deletedStations));
           }
           if (settings.currentTab && typeof settings.currentTab === "string") {
-            const validTabs = ["history", "best", "techno", "trance", "ukraine", "pop", "search", ...customTabs];
+            const validTabs = ["best", "techno", "trance", "ukraine", "pop", "search", ...customTabs];
             if (validTabs.includes(settings.currentTab)) {
               currentTab = settings.currentTab;
               localStorage.setItem("currentTab", currentTab);
@@ -1436,7 +1444,7 @@ searchBtn.addEventListener("click", () => {
     }
 
     function renderTabs() {
-      const fixedTabs = ["history", "best", "techno", "trance", "ukraine", "pop"];
+      const fixedTabs = ["best", "techno", "trance", "ukraine", "pop"];
       const searchTab = "search";
       
       tabsContainer.innerHTML = "";
@@ -1446,7 +1454,7 @@ searchBtn.addEventListener("click", () => {
         const btn = document.createElement("button");
         btn.className = `tab-btn ${currentTab === tab ? "active" : ""}`;
         btn.dataset.tab = tab;
-        btn.textContent = tab === "history" ? "Історія" : tab === "best" ? "Best" : tab === "ukraine" ? "UA" : tab.charAt(0).toUpperCase() + tab.slice(1);
+        btn.textContent = tab === "best" ? "Best" : tab === "ukraine" ? "UA" : tab.charAt(0).toUpperCase() + tab.slice(1);
         btn.setAttribute("role", "tab");
         btn.setAttribute("aria-selected", currentTab === tab ? "true" : "false");
         btn.setAttribute("aria-label", `${tab} tab`);
@@ -1977,67 +1985,6 @@ searchBtn.addEventListener("click", () => {
         streamAbortController = null;
       }
     }
-
-
-    function renderHistoryList() {
-      if (!stationList) return;
-      try {
-        var raw = localStorage.getItem("recentStations");
-        var parsed = raw ? JSON.parse(raw) : [];
-        if (Array.isArray(parsed)) recentStations = parsed;
-      } catch (e) {}
-      stationItems = [];
-      if (!recentStations || !recentStations.length) {
-        stationList.innerHTML = "<div class='station-item empty'>Поки порожньо — увімкніть станцію</div>";
-        return;
-      }
-      var fragment = document.createDocumentFragment();
-      recentStations.forEach(function (s, index) {
-        var item = document.createElement("div");
-        item.className = "station-item" + (lastStationUrl && s.url === lastStationUrl ? " selected" : "");
-        item.dataset.value = s.url || "";
-        item.dataset.name = s.name || "";
-        item.dataset.genre = s.genre || "—";
-        item.dataset.country = s.country || "—";
-        item.dataset.favicon = s.favicon || "";
-        item.dataset.index = String(index);
-        item.setAttribute("role", "listitem");
-        var fav = (s.favicon || "").replace(/"/g, "");
-        var iconHtml;
-        if (fav && (fav.indexOf("http://") === 0 || fav.indexOf("https://") === 0)) {
-          iconHtml = "<img data-src=\"" + fav + "\" alt=\"\" style=\"width:32px;height:32px;object-fit:contain;margin-right:10px;\" onerror=\"this.outerHTML='🎵 '\">";
-        } else {
-          iconHtml = "🎵 ";
-        }
-        item.innerHTML = iconHtml + "<span class=\"station-name\"></span>";
-        var nameEl = item.querySelector(".station-name");
-        if (nameEl) nameEl.textContent = s.name || s.url || "Station";
-        fragment.appendChild(item);
-      });
-      stationList.innerHTML = "";
-      stationList.appendChild(fragment);
-      stationItems = stationList.querySelectorAll(".station-item");
-      if (lazyLoadObserver) {
-        stationItems.forEach(function (item) {
-          var img = item.querySelector("img[data-src]");
-          if (img) lazyLoadObserver.observe(img);
-        });
-      } else {
-        stationItems.forEach(function (item) {
-          var img = item.querySelector("img[data-src]");
-          if (img && img.dataset.src) img.src = img.dataset.src;
-        });
-      }
-      stationList.onclick = function (e) {
-        var item = e.target.closest(".station-item");
-        if (!item || item.classList.contains("empty")) return;
-        e.preventDefault();
-        currentIndex = Array.prototype.indexOf.call(stationItems, item);
-        if (currentIndex < 0) currentIndex = 0;
-        changeStation(currentIndex);
-      };
-    }
-
     function collapseSearchPanel(keepChips) {
       searchPanelOpen = false;
       const fields = document.getElementById("searchFields");
@@ -2097,7 +2044,7 @@ searchBtn.addEventListener("click", () => {
         return;
       }
 
-      const validTabs = ["history", "best", "techno", "trance", "ukraine", "pop", "search", ...customTabs];
+      const validTabs = ["best", "techno", "trance", "ukraine", "pop", "search", ...customTabs];
       if (!validTabs.includes(tab)) tab = "techno";
       
       document.querySelectorAll(".tab-btn").forEach(btn => {
@@ -2128,18 +2075,6 @@ searchBtn.addEventListener("click", () => {
         btn.classList.toggle("active", on);
         btn.setAttribute("aria-selected", on ? "true" : "false");
       });
-
-      // ===== Історія =====
-      if (tab === "history") {
-        if (searchInput) {
-          searchInput.style.display = "none";
-          searchInput.classList.remove("search-open", "is-expanded");
-        }
-        renderHistoryList();
-        renderTabs();
-        syncQueueToNative();
-        return;
-      }
 
       const savedIndex = parseInt(localStorage.getItem("lastStation_" + tab), 10) || 0;
       let maxIndex = 0;
@@ -2654,7 +2589,6 @@ searchBtn.addEventListener("click", () => {
       localStorage.setItem("lastStationUrl", lastStationUrl);
       localStorage.setItem("lastStationName", lastStationName);
       nativeSaveStation(lastStationUrl, lastStationName);
-      pushRecentStation(lastStationUrl, lastStationName, item.dataset.genre, item.dataset.country, item.dataset.favicon);
       localStorage.setItem(`lastStation_${currentTab}`, index);
       syncQueueToNative();
       
