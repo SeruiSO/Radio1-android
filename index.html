@@ -24,7 +24,15 @@
         <button type="button" class="more-item export-button" aria-label="Експорт">📤 Експорт</button>
         <button type="button" class="more-item import-button" aria-label="Імпорт">📥 Імпорт</button>
         <button type="button" class="more-item bt-watch-btn" id="btWatchBtn" aria-label="BT стеження">🔵 BT стеження: увімк</button>
-        <button type="button" class="more-item" id="sleepTimerBtn" aria-label="Таймер сну">⏱ Таймер сну</button>
+        <div class="sleep-wrap">
+        <button type="button" class="more-item" id="sleepTimerBtn" aria-label="Таймер сну" aria-expanded="false">⏱ Таймер сну</button>
+        <div class="sleep-menu" id="sleepTimerMenu" hidden>
+          <button type="button" class="sleep-opt" data-mins="15">15 хв</button>
+          <button type="button" class="sleep-opt" data-mins="30">30 хв</button>
+          <button type="button" class="sleep-opt" data-mins="60">60 хв</button>
+          <button type="button" class="sleep-opt" data-mins="0">Вимкнути</button>
+        </div>
+      </div>
       </div>
     </div>
     <input type="file" id="importFileInput" accept="application/json" aria-label="Файл для імпорту налаштувань">

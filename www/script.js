@@ -517,15 +517,35 @@ document.addEventListener("DOMContentLoaded", () => {
       }, mins * 60 * 1000);
     }
     const sleepTimerBtn = document.getElementById("sleepTimerBtn");
-    if (sleepTimerBtn) {
+    const sleepTimerMenu = document.getElementById("sleepTimerMenu");
+    function closeSleepMenu() {
+      if (sleepTimerMenu) sleepTimerMenu.hidden = true;
+      if (sleepTimerBtn) sleepTimerBtn.setAttribute("aria-expanded", "false");
+    }
+    if (sleepTimerBtn && sleepTimerMenu) {
       sleepTimerBtn.addEventListener("click", function (e) {
         e.stopPropagation();
-        // цикл 15 → 30 → 60 → off
-        const label = sleepTimerBtn.textContent || "";
-        if (label.indexOf("15") !== -1) armSleepTimer(30);
-        else if (label.indexOf("30") !== -1) armSleepTimer(60);
-        else if (label.indexOf("60") !== -1) { clearSleepTimer(); showToast("Таймер сну вимкнено", "info"); }
-        else armSleepTimer(15);
+        const open = sleepTimerMenu.hidden;
+        sleepTimerMenu.hidden = !open;
+        sleepTimerBtn.setAttribute("aria-expanded", open ? "true" : "false");
+      });
+      sleepTimerMenu.querySelectorAll(".sleep-opt").forEach(function (btn) {
+        btn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          const mins = parseInt(btn.getAttribute("data-mins"), 10) || 0;
+          closeSleepMenu();
+          if (mins <= 0) {
+            clearSleepTimer();
+            showToast("Таймер сну вимкнено", "info");
+          } else {
+            armSleepTimer(mins);
+          }
+        });
+      });
+      document.addEventListener("click", function (e) {
+        if (!sleepTimerMenu.hidden && !sleepTimerMenu.contains(e.target) && e.target !== sleepTimerBtn) {
+          closeSleepMenu();
+        }
       });
     }
 
@@ -1958,6 +1978,7 @@ searchBtn.addEventListener("click", () => {
       }
     }
 
+
     function renderHistoryList() {
       if (!stationList) return;
       try {
@@ -1967,45 +1988,54 @@ searchBtn.addEventListener("click", () => {
       } catch (e) {}
       stationItems = [];
       if (!recentStations || !recentStations.length) {
-        stationList.innerHTML = "<div class='station-item empty'>Поки порожньо — увімкніть станцію, вона з’явиться тут</div>";
+        stationList.innerHTML = "<div class='station-item empty'>Поки порожньо — увімкніть станцію</div>";
         return;
       }
-      const fragment = document.createDocumentFragment();
-      recentStations.forEach((s, index) => {
-        const item = document.createElement("div");
+      var fragment = document.createDocumentFragment();
+      recentStations.forEach(function (s, index) {
+        var item = document.createElement("div");
         item.className = "station-item" + (lastStationUrl && s.url === lastStationUrl ? " selected" : "");
         item.dataset.value = s.url || "";
         item.dataset.name = s.name || "";
-        item.dataset.genre = s.genre || "";
-        item.dataset.country = s.country || "";
+        item.dataset.genre = s.genre || "—";
+        item.dataset.country = s.country || "—";
         item.dataset.favicon = s.favicon || "";
-        item.innerHTML = "<div class='station-main'><span class='station-title'></span></div>";
-        const title = item.querySelector(".station-title");
-        if (title) title.textContent = s.name || s.url || "Station";
-        item.addEventListener("click", function () {
-          // play from history without requiring tab list index machinery
-          lastStationUrl = s.url;
-          lastStationName = s.name || "";
-          localStorage.setItem("lastStationUrl", lastStationUrl);
-          localStorage.setItem("lastStationName", lastStationName);
-          nativeSaveStation(lastStationUrl, lastStationName);
-          intendedPlaying = true;
-          isPlaying = true;
-          localStorage.setItem("intendedPlaying", "true");
-          if (typeof nativePlay === "function") nativePlay(lastStationUrl, lastStationName);
-          try {
-            document.querySelectorAll(".station-item").forEach(function (el) { el.classList.remove("selected"); });
-            item.classList.add("selected");
-            const nameEl = currentStationInfo && currentStationInfo.querySelector(".station-name");
-            if (nameEl) nameEl.textContent = lastStationName;
-          } catch (e) {}
-          pushRecentStation(s.url, s.name, s.genre, s.country, s.favicon);
-        });
+        item.dataset.index = String(index);
+        item.setAttribute("role", "listitem");
+        var fav = (s.favicon || "").replace(/"/g, "");
+        var iconHtml;
+        if (fav && (fav.indexOf("http://") === 0 || fav.indexOf("https://") === 0)) {
+          iconHtml = "<img data-src=\"" + fav + "\" alt=\"\" style=\"width:32px;height:32px;object-fit:contain;margin-right:10px;\" onerror=\"this.outerHTML='🎵 '\">";
+        } else {
+          iconHtml = "🎵 ";
+        }
+        item.innerHTML = iconHtml + "<span class=\"station-name\"></span>";
+        var nameEl = item.querySelector(".station-name");
+        if (nameEl) nameEl.textContent = s.name || s.url || "Station";
         fragment.appendChild(item);
-        stationItems.push(item);
       });
       stationList.innerHTML = "";
       stationList.appendChild(fragment);
+      stationItems = stationList.querySelectorAll(".station-item");
+      if (lazyLoadObserver) {
+        stationItems.forEach(function (item) {
+          var img = item.querySelector("img[data-src]");
+          if (img) lazyLoadObserver.observe(img);
+        });
+      } else {
+        stationItems.forEach(function (item) {
+          var img = item.querySelector("img[data-src]");
+          if (img && img.dataset.src) img.src = img.dataset.src;
+        });
+      }
+      stationList.onclick = function (e) {
+        var item = e.target.closest(".station-item");
+        if (!item || item.classList.contains("empty")) return;
+        e.preventDefault();
+        currentIndex = Array.prototype.indexOf.call(stationItems, item);
+        if (currentIndex < 0) currentIndex = 0;
+        changeStation(currentIndex);
+      };
     }
 
     function collapseSearchPanel(keepChips) {
@@ -2051,6 +2081,22 @@ searchBtn.addEventListener("click", () => {
     }
 
     function switchTab(tab) {
+      /* SEARCH_RETAP: повторний тап Search = чиста форма */
+      if (tab === "search" && currentTab === "search") {
+        try {
+          if (searchQuery) searchQuery.value = "";
+          if (searchCountry) searchCountry.value = "";
+          if (searchGenre) searchGenre.value = "";
+          expandSearchPanel();
+          updateSearchToggleLabel();
+          if (stationList) {
+            stationList.innerHTML = "<div class='station-item empty'>Введіть запит і натисніть Знайти</div>";
+            stationItems = [];
+          }
+        } catch (e) {}
+        return;
+      }
+
       const validTabs = ["history", "best", "techno", "trance", "ukraine", "pop", "search", ...customTabs];
       if (!validTabs.includes(tab)) tab = "techno";
       
@@ -2111,9 +2157,16 @@ searchBtn.addEventListener("click", () => {
           searchInput.style.display = "flex";
           searchInput.classList.add("search-open");
         }
-        try { collapseSearchPanel(); } catch (e) {}
+        // завжди показуємо 3 поля на вкладці Search
+        try {
+          if (searchQuery) searchQuery.value = "";
+          if (searchCountry) searchCountry.value = "";
+          if (searchGenre) searchGenre.value = "";
+        } catch (e) {}
+        try { expandSearchPanel(); } catch (e) {}
         try { populateSearchSuggestions(); } catch (e) {}
-        if (stationList && (!stationItems || !stationItems.length)) {
+        try { updateSearchToggleLabel(); } catch (e) {}
+        if (stationList) {
           stationList.innerHTML = "<div class='station-item empty'>Введіть запит і натисніть Знайти</div>";
           stationItems = [];
         }

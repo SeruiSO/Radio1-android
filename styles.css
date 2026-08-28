@@ -957,3 +957,35 @@ body {
   display: flex !important;
   flex-direction: column;
 }
+
+.sleep-wrap { position: relative; }
+.sleep-menu {
+  display: flex; flex-direction: column; gap: 2px;
+  margin: 4px 8px 8px; padding: 6px;
+  background: var(--body-bg, #0a0a0c);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+.sleep-menu[hidden] { display: none !important; }
+.sleep-opt {
+  background: transparent; border: none; color: var(--text);
+  text-align: left; padding: 10px 12px; border-radius: 8px;
+  font-size: 14px; cursor: pointer;
+}
+.sleep-opt:active, .sleep-opt:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+#searchInput.search-open {
+  display: flex !important;
+  flex-direction: column;
+  max-height: min(42vh, 320px);
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+#searchInput.search-open .search-fields:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
