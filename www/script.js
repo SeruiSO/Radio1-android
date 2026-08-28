@@ -2,8 +2,10 @@ let currentTab = localStorage.getItem("currentTab") || "techno";
 if (currentTab === "history") { currentTab = "techno"; localStorage.setItem("currentTab", "techno"); }
 let currentIndex = 0;
 let favoriteStations = JSON.parse(localStorage.getItem("favoriteStations")) || [];
-let isPlaying = localStorage.getItem("isPlaying") === "true" || false;
-let intendedPlaying = localStorage.getItem("intendedPlaying") === "true" || false;
+let isPlaying = false; /* NATIVE_NO_LS_PLAY */
+let _lsPlayHint = localStorage.getItem("isPlaying") === "true";
+let intendedPlaying = false; /* NATIVE_NO_LS_PLAY */
+let _lsIntendedHint = localStorage.getItem("intendedPlaying") === "true";
 let stationLists = JSON.parse(localStorage.getItem("stationLists")) || {};
 let userAddedStations = JSON.parse(localStorage.getItem("userAddedStations")) || {};
 let stationItems = [];
@@ -101,6 +103,14 @@ function getNativeAutoPlay() {
   } catch (e) {
     return null;
   }
+}
+function restorePlayHintsIfWeb() {
+  /* WEB_LS_PLAY_RESTORE */
+  if (isNativeApp()) return;
+  try {
+    if (typeof _lsPlayHint !== "undefined" && _lsPlayHint) isPlaying = true;
+    if (typeof _lsIntendedHint !== "undefined" && _lsIntendedHint) intendedPlaying = true;
+  } catch (e) {}
 }
 function isNativeApp() {
   try {
@@ -244,6 +254,18 @@ function applyNativePlaybackState(state) {
       }
     }
   } catch (e) {}
+  
+  var factPlaying = (typeof state.isPlaying === "boolean")
+    ? !!state.isPlaying
+    : !!state.intendedPlaying;
+  intendedPlaying = !!state.intendedPlaying;
+  isPlaying = factPlaying;
+  try {
+    localStorage.setItem("intendedPlaying", intendedPlaying ? "true" : "false");
+    localStorage.setItem("isPlaying", isPlaying ? "true" : "false");
+  } catch (e) {}
+  try { if (typeof syncPlaybackUi === "function") syncPlaybackUi(isPlaying); } catch (e) {}
+
   return true;
 }
 
@@ -335,6 +357,8 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeApp();
 
   function initializeApp() {
+    try { restorePlayHintsIfWeb(); } catch (e) {}
+
     try { localStorage.removeItem("recentStations"); } catch (e) {} /* recentStations_cleanup */
 
     if (isNativeApp() && "serviceWorker" in navigator) {

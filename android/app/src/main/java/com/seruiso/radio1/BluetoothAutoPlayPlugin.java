@@ -31,6 +31,7 @@ public class BluetoothAutoPlayPlugin extends Plugin {
     public static final String KEY_QUEUE_NAMES = "queueNames";
     public static final String KEY_QUEUE_INDEX = "queueIndex";
     public static final String KEY_BT_WATCH = "btWatchEnabled";
+    public static final String KEY_ACTUALLY_PLAYING = "actuallyPlaying";
     public static final String KEY_IS_PLAYING = "isPlaying";
     public static final String KEY_TRACK = "lastTrackTitle";
 

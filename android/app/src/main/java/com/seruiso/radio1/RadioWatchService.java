@@ -82,7 +82,9 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             if (AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())) {
                 if (player != null && player.isPlaying()) {
                     player.pause();
+                    writeActuallyPlaying(false);
                     notifyForeground();
+                    notifyUiPlayback(false);
                 }
             }
         }
@@ -518,6 +520,15 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             }
         };
         silenceHandler.postDelayed(silenceCheck, 3000);
+    }
+
+    private void writeActuallyPlaying(boolean playing) {
+        try {
+            getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
+                .edit()
+                .putBoolean(BluetoothAutoPlayPlugin.KEY_ACTUALLY_PLAYING, playing)
+                .apply();
+        } catch (Exception ignored) {}
     }
 
     private void notifyUiPlayback(boolean playing) {
