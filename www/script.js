@@ -1911,8 +1911,10 @@ searchBtn.addEventListener("click", () => {
               lastStationUrl = st.url;
               localStorage.setItem("lastStationUrl", lastStationUrl);
               if (st.name) localStorage.setItem("lastStationName", st.name);
-              // уже грає цей URL у native — не перезапускати (не відкочувати на A)
-              if (st.isPlaying || st.intendedPlaying) {
+              // Скіпати restart лише якщо ExoPlayer РЕАЛЬНО грає.
+              // intendedPlaying=true після кнопки Play — це ще НЕ play:
+              // інакше nativePlay не викликається, UI "грає", звуку немає.
+              if (st.isPlaying === true) {
                 applyNativePlaybackState(st);
                 isAutoPlayPending = false;
                 return;
@@ -2781,14 +2783,28 @@ searchBtn.addEventListener("click", () => {
         isPlaying = true;
         intendedPlaying = true;
         localStorage.setItem("isPlaying", "true");
-        localStorage.setItem("intendedPlaying", "true"); nativeSetPlaying(true);
-        debouncedTryAutoPlay(4, 600);
+        localStorage.setItem("intendedPlaying", "true");
+        nativeSetPlaying(true);
         playPauseBtn.textContent = "⏸";
         playPauseBtn.setAttribute("aria-label", "Пауза");
         playPauseBtn.classList.add("playing");
         updateWaveVisualizer(true);
         if ("mediaSession" in navigator) {
           navigator.mediaSession.playbackState = "playing";
+        }
+        if (isNativeApp()) {
+          try { if (autoPlayTimeout) clearTimeout(autoPlayTimeout); } catch (e) {}
+          isAutoPlayPending = false;
+          autoPlayRequestId++;
+          const item = stationItems && stationItems[currentIndex];
+          const playUrl = (item && item.dataset && item.dataset.value) || lastStationUrl;
+          const playName = (item && item.dataset && item.dataset.name) || lastStationName || "";
+          const fav = (item && item.dataset && item.dataset.favicon) || "";
+          const genre = (item && item.dataset && item.dataset.genre) || "";
+          const country = (item && item.dataset && item.dataset.country) || "";
+          nativePlay(playUrl, playName, fav, genre, country).catch(function () {});
+        } else {
+          debouncedTryAutoPlay(4, 600);
         }
       } else {
         // ===== ВАЖЛИВО: тільки pause(), src НЕ скидаємо =====

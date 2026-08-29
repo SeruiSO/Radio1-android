@@ -735,7 +735,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
                 .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)
                 .putBoolean(BluetoothAutoPlayPlugin.KEY_IS_PLAYING, false)
                 .putBoolean(BluetoothAutoPlayPlugin.KEY_ACTUALLY_PLAYING, false)
-                .apply();
+                .commit();
             if (player != null) player.pause();
             writeActuallyPlaying(false);
             notifyForeground();
