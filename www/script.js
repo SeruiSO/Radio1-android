@@ -1897,10 +1897,28 @@ searchBtn.addEventListener("click", () => {
           return;
         }
 
-        // Беремо URL з поточного списку або з останнього збереженого
+        // URL: native — спочатку з сервісу (skip/шторка), інакше UI index
         let currentStationUrl = stationItems?.[currentIndex]?.dataset?.value;
         if (!currentStationUrl && lastStationUrl) {
           currentStationUrl = lastStationUrl;
+        }
+        if (isNativeApp()) {
+          try {
+            const st = await nativeGetPlaybackState();
+            if (st && st.url && isValidUrl(st.url)) {
+              currentStationUrl = st.url;
+              if (st.name) lastStationName = st.name;
+              lastStationUrl = st.url;
+              localStorage.setItem("lastStationUrl", lastStationUrl);
+              if (st.name) localStorage.setItem("lastStationName", st.name);
+              // уже грає цей URL у native — не перезапускати (не відкочувати на A)
+              if (st.isPlaying || st.intendedPlaying) {
+                applyNativePlaybackState(st);
+                isAutoPlayPending = false;
+                return;
+              }
+            }
+          } catch (e) {}
         }
         if (!currentStationUrl || !isValidUrl(currentStationUrl)) {
           errorCount++;
@@ -2836,7 +2854,13 @@ searchBtn.addEventListener("click", () => {
         }
       },
       pageshow: (e) => {
-        // pageshow спрацьовує і при bfcache, і при звичайному показі
+        // Native: ніколи не nativePlay зі stale currentIndex — лише sync з сервісу
+        if (isNativeApp()) {
+          nativeGetPlaybackState().then(function (st) {
+            if (st) applyNativePlaybackState(st);
+          });
+          return;
+        }
         if (intendedPlaying) {
           isAutoPlayPending = false;
           setTimeout(() => debouncedTryAutoPlay(4, 800), 300);

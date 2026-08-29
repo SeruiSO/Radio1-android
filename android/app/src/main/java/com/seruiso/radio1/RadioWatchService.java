@@ -71,6 +71,8 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
     private long lastSkipMs = 0;
     private long lastPlayMs = 0;
     private String lastPlayedUrl = "";
+    /** URL що реально грає зараз — source of truth для reconnect */
+    private String currentPlayUrl = "";
     private boolean pausedByFocusLoss = false;
     private String lastTrackTitle = "";
     private Bitmap stationArt = null;
@@ -296,7 +298,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
                         }
                         reconnectHandler.postDelayed(() -> {
                             try {
-                                String url = sp.getString(BluetoothAutoPlayPlugin.KEY_URL, "");
+                                String url = resolveReconnectUrl();
                                 if (url != null && !url.isEmpty()) playUrl(url);
                                 else scheduleReconnect();
                             } catch (Exception e) {
@@ -400,7 +402,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
                     int state = player.getPlaybackState();
                     if (state == Player.STATE_IDLE || state == Player.STATE_ENDED
                             || player.getCurrentMediaItem() == null) {
-                        String url = sp.getString(BluetoothAutoPlayPlugin.KEY_URL, "");
+                        String url = resolveReconnectUrl();
                         if (url != null && !url.isEmpty()) playUrl(url);
                     } else {
                         if (!requestFocus()) {
@@ -458,7 +460,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
                 .putString(BluetoothAutoPlayPlugin.KEY_COUNTRY, country != null ? country : "")
                 .putString(BluetoothAutoPlayPlugin.KEY_TRACK, "")
                 .putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, true)
-                .apply();
+                .commit(); // commit: reconnect має бачити новий URL одразу
 
             currentName = name;
             lastTrackTitle = "";
@@ -818,6 +820,11 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
                     && (player.isPlaying() || player.getPlayWhenReady())
                     && (now - lastPlayMs < 500)) {
                 android.util.Log.d("RadioWatch", "playUrl skip duplicate: " + url);
+                currentPlayUrl = url;
+                try {
+                    getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
+                        .edit().putString(BluetoothAutoPlayPlugin.KEY_URL, url).commit();
+                } catch (Exception ignored) {}
                 notifyForeground();
                 return;
             }
@@ -833,9 +840,14 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             }
             lastPlayMs = now;
             lastPlayedUrl = url;
+            currentPlayUrl = url;
             lastTrackTitle = "";
+            // Критично: те що граємо = source of truth для reconnect (skip/UI/BT)
             getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
-                .edit().putString(BluetoothAutoPlayPlugin.KEY_TRACK, "").apply();
+                .edit()
+                .putString(BluetoothAutoPlayPlugin.KEY_URL, url)
+                .putString(BluetoothAutoPlayPlugin.KEY_TRACK, "")
+                .commit();
             MediaItem item = new MediaItem.Builder()
                 .setUri(url)
                 .setMediaMetadata(new MediaMetadata.Builder()
@@ -885,6 +897,25 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
     private int reconnectAttempt = 0;
     private static final int RECONNECT_MAX = 20;
 
+
+    /** URL для reconnect: спочатку те що грали, інакше prefs */
+    private String resolveReconnectUrl() {
+        try {
+            if (player != null && player.getCurrentMediaItem() != null
+                    && player.getCurrentMediaItem().localConfiguration != null) {
+                String u = player.getCurrentMediaItem().localConfiguration.uri.toString();
+                if (u != null && !u.isEmpty()) return u;
+            }
+        } catch (Exception ignored) {}
+        if (currentPlayUrl != null && !currentPlayUrl.isEmpty()) return currentPlayUrl;
+        try {
+            String u = getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
+                .getString(BluetoothAutoPlayPlugin.KEY_URL, "");
+            if (u != null && !u.isEmpty()) return u;
+        } catch (Exception ignored) {}
+        return "";
+    }
+
     private void scheduleReconnect() {
         SharedPreferences sp = getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
         if (!sp.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)) return;
@@ -903,7 +934,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
                 reconnectAttempt = 0;
                 return;
             }
-            String url = p.getString(BluetoothAutoPlayPlugin.KEY_URL, "");
+            String url = resolveReconnectUrl();
             android.util.Log.i("RadioWatch", "reconnect attempt " + attempt + " url=" + url);
             if (url != null && !url.isEmpty()) {
                 reconnectAttempt = attempt + 1;
