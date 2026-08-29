@@ -1,5 +1,13 @@
 package com.seruiso.radio1;
 
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.appwidget.AppWidgetManager;
+import android.content.ComponentName;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -65,6 +73,9 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
     private String lastPlayedUrl = "";
     private boolean pausedByFocusLoss = false;
     private String lastTrackTitle = "";
+    private Bitmap stationArt = null;
+    private String stationArtUrl = "";
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private AudioManager audioManager;
     private AudioFocusRequest focusRequest;
     private boolean noisyRegistered = false;
@@ -185,8 +196,10 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             @Override
             public void onIsPlayingChanged(boolean isPlaying) {
                 writePlayingFlag(isPlaying);
+                writeActuallyPlaying(isPlaying);
                 notifyForeground();
                 notifyUiPlayback(isPlaying);
+                try { RadioAppWidget.updateAll(RadioWatchService.this, stationArt); } catch (Exception ignored) {}
             }
 
             @Override
@@ -401,11 +414,17 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         SharedPreferences p = getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
         String urlsJson = p.getString(BluetoothAutoPlayPlugin.KEY_QUEUE_URLS, "[]");
         String namesJson = p.getString(BluetoothAutoPlayPlugin.KEY_QUEUE_NAMES, "[]");
+        String favsJson = p.getString(BluetoothAutoPlayPlugin.KEY_QUEUE_FAVICONS, "[]");
+        String genresJson = p.getString(BluetoothAutoPlayPlugin.KEY_QUEUE_GENRES, "[]");
+        String countriesJson = p.getString(BluetoothAutoPlayPlugin.KEY_QUEUE_COUNTRIES, "[]");
         int index = p.getInt(BluetoothAutoPlayPlugin.KEY_QUEUE_INDEX, 0);
 
         try {
             JSONArray urls = new JSONArray(urlsJson);
             JSONArray names = new JSONArray(namesJson);
+            JSONArray favs = new JSONArray(favsJson);
+            JSONArray genres = new JSONArray(genresJson);
+            JSONArray countries = new JSONArray(countriesJson);
             if (urls.length() == 0) {
                 notifyUiSkip(next);
                 return;
@@ -417,17 +436,29 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             }
             String url = urls.optString(index, "");
             String name = names.optString(index, "Radio S O");
+            String fav = favs.optString(index, "");
+            String genre = genres.optString(index, "");
+            String country = countries.optString(index, "");
             if (url.isEmpty()) return;
 
             p.edit()
                 .putInt(BluetoothAutoPlayPlugin.KEY_QUEUE_INDEX, index)
                 .putString(BluetoothAutoPlayPlugin.KEY_URL, url)
                 .putString(BluetoothAutoPlayPlugin.KEY_NAME, name)
+                .putString(BluetoothAutoPlayPlugin.KEY_FAVICON, fav != null ? fav : "")
+                .putString(BluetoothAutoPlayPlugin.KEY_GENRE, genre != null ? genre : "")
+                .putString(BluetoothAutoPlayPlugin.KEY_COUNTRY, country != null ? country : "")
+                .putString(BluetoothAutoPlayPlugin.KEY_TRACK, "")
                 .putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, true)
                 .apply();
 
             currentName = name;
+            lastTrackTitle = "";
+            // скинути кеш іконки щоб форсовано перезавантажити
+            stationArt = null;
+            stationArtUrl = "";
             playUrl(url);
+            loadStationArtAsync();
             notifyUiSkip(next);
         } catch (Exception e) {
             notifyUiSkip(next);
@@ -441,17 +472,77 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_IS_PLAYING, playing).apply();
     }
 
+
+    private void loadStationArtAsync() {
+        SharedPreferences sp = getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
+        final String fav = sp.getString(BluetoothAutoPlayPlugin.KEY_FAVICON, "");
+        if (fav == null || fav.isEmpty()) {
+            stationArt = null;
+            stationArtUrl = "";
+            return;
+        }
+        if (fav.equals(stationArtUrl) && stationArt != null) return;
+        stationArtUrl = fav;
+        new Thread(() -> {
+            Bitmap bmp = null;
+            HttpURLConnection conn = null;
+            try {
+                URL u = new URL(fav);
+                conn = (HttpURLConnection) u.openConnection();
+                conn.setConnectTimeout(4000);
+                conn.setReadTimeout(4000);
+                conn.setInstanceFollowRedirects(true);
+                conn.connect();
+                if (conn.getResponseCode() == 200) {
+                    InputStream is = conn.getInputStream();
+                    Bitmap raw = BitmapFactory.decodeStream(is);
+                    is.close();
+                    if (raw != null) {
+                        int max = 256;
+                        int w = raw.getWidth(), h = raw.getHeight();
+                        if (w > max || h > max) {
+                            float s = Math.min((float) max / w, (float) max / h);
+                            bmp = Bitmap.createScaledBitmap(raw, Math.round(w * s), Math.round(h * s), true);
+                            if (bmp != raw) raw.recycle();
+                        } else {
+                            bmp = raw;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                android.util.Log.w("RadioWatch", "art load fail: " + e.getMessage());
+            } finally {
+                if (conn != null) try { conn.disconnect(); } catch (Exception ignored) {}
+            }
+            final Bitmap result = bmp;
+            mainHandler.post(() -> {
+                stationArt = result;
+                applySessionMetadata(currentName, lastTrackTitle);
+                notifyForeground();
+                try { RadioAppWidget.updateAll(RadioWatchService.this, stationArt); } catch (Exception ignored) {}
+            });
+        }).start();
+    }
+
     private void applySessionMetadata(String station, String track) {
         if (player == null) return;
         try {
             String title = (track != null && !track.isEmpty()) ? track : (station != null ? station : "Radio S O");
             String artist = (station != null && !station.isEmpty()) ? station : "Radio S O";
-            MediaMetadata md = new MediaMetadata.Builder()
+            MediaMetadata.Builder mdb = new MediaMetadata.Builder()
                 .setTitle(title)
                 .setArtist(artist)
                 .setDisplayTitle(title)
                 .setSubtitle(artist)
-                .build();
+                .setAlbumTitle("Radio S O");
+            if (stationArt != null) {
+                try {
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    stationArt.compress(Bitmap.CompressFormat.PNG, 90, baos);
+                    mdb.setArtworkData(baos.toByteArray(), MediaMetadata.PICTURE_TYPE_FRONT_COVER);
+                } catch (Exception ignored) {}
+            }
+            MediaMetadata md = mdb.build();
             MediaItem current = player.getCurrentMediaItem();
             if (current == null) return;
             int idx = player.getCurrentMediaItemIndex();
@@ -570,10 +661,14 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             pausedByFocusLoss = false; // пауза від користувача — не resume
             getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
                 .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)
-                .putBoolean(BluetoothAutoPlayPlugin.KEY_IS_PLAYING, false).apply();
+                .putBoolean(BluetoothAutoPlayPlugin.KEY_IS_PLAYING, false)
+                .putBoolean(BluetoothAutoPlayPlugin.KEY_ACTUALLY_PLAYING, false)
+                .apply();
             if (player != null) player.pause();
+            writeActuallyPlaying(false);
             notifyForeground();
             notifyUiPlayback(false);
+            try { RadioAppWidget.updateAll(this, stationArt); } catch (Exception ignored) {}
             return START_STICKY;
         }
 
@@ -685,6 +780,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             player.prepare();
             player.setPlayWhenReady(true);
             writePlayingFlag(true);
+            loadStationArtAsync();
             try { writeActuallyPlaying(true); } catch (Exception ignored) {}
             notifyUiStatus("connecting", 0);
             bufferingTicks = 0;
@@ -772,6 +868,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         } else {
             startForeground(NOTIF_ID, n);
         }
+        try { RadioAppWidget.updateAll(this, stationArt); } catch (Exception ignored) {}
     }
 
     private Notification buildNotification() {
@@ -833,8 +930,19 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setStyle(new androidx.media.app.NotificationCompat.MediaStyle()
-                .setShowActionsInCompactView(0, 1, 2));
+            .setColor(0xFF121212);
+        if (stationArt != null) {
+            b.setLargeIcon(stationArt);
+        }
+        androidx.media.app.NotificationCompat.MediaStyle style =
+            new androidx.media.app.NotificationCompat.MediaStyle()
+                .setShowActionsInCompactView(0, 1, 2);
+        try {
+            if (mediaSession != null) {
+                style.setMediaSession(mediaSession.getSessionCompatToken());
+            }
+        } catch (Exception ignored) {}
+        b.setStyle(style);
 
         b.addAction(android.R.drawable.ic_media_previous, "Назад", prevPi);
         if (playing) {

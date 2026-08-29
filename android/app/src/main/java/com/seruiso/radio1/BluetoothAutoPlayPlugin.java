@@ -30,17 +30,32 @@ public class BluetoothAutoPlayPlugin extends Plugin {
     public static final String KEY_QUEUE_URLS = "queueUrls";
     public static final String KEY_QUEUE_NAMES = "queueNames";
     public static final String KEY_QUEUE_INDEX = "queueIndex";
+    public static final String KEY_QUEUE_FAVICONS = "queueFavicons";
+    public static final String KEY_QUEUE_GENRES = "queueGenres";
+    public static final String KEY_QUEUE_COUNTRIES = "queueCountries";
     public static final String KEY_BT_WATCH = "btWatchEnabled";
     public static final String KEY_ACTUALLY_PLAYING = "actuallyPlaying";
     public static final String KEY_IS_PLAYING = "isPlaying";
     public static final String KEY_TRACK = "lastTrackTitle";
+    public static final String KEY_FAVICON = "lastStationFavicon";
+    public static final String KEY_GENRE = "lastStationGenre";
+    public static final String KEY_COUNTRY = "lastStationCountry";
 
     @PluginMethod
     public void saveStation(PluginCall call) {
         String url = call.getString("url", "");
         String name = call.getString("name", "");
+        String favicon = call.getString("favicon", "");
+        String genre = call.getString("genre", "");
+        String country = call.getString("country", "");
         SharedPreferences p = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        p.edit().putString(KEY_URL, url).putString(KEY_NAME, name).apply();
+        SharedPreferences.Editor ed = p.edit()
+            .putString(KEY_URL, url)
+            .putString(KEY_NAME, name);
+        if (favicon != null) ed.putString(KEY_FAVICON, favicon);
+        if (genre != null) ed.putString(KEY_GENRE, genre);
+        if (country != null) ed.putString(KEY_COUNTRY, country);
+        ed.apply();
         call.resolve();
     }
 
@@ -57,11 +72,17 @@ public class BluetoothAutoPlayPlugin extends Plugin {
     public void saveQueue(PluginCall call) {
         String urls = call.getString("urls", "[]");
         String names = call.getString("names", "[]");
+        String favicons = call.getString("favicons", "[]");
+        String genres = call.getString("genres", "[]");
+        String countries = call.getString("countries", "[]");
         int index = call.getInt("index", 0);
         SharedPreferences p = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         p.edit()
             .putString(KEY_QUEUE_URLS, urls)
             .putString(KEY_QUEUE_NAMES, names)
+            .putString(KEY_QUEUE_FAVICONS, favicons != null ? favicons : "[]")
+            .putString(KEY_QUEUE_GENRES, genres != null ? genres : "[]")
+            .putString(KEY_QUEUE_COUNTRIES, countries != null ? countries : "[]")
             .putInt(KEY_QUEUE_INDEX, index)
             .apply();
         call.resolve();
@@ -80,6 +101,12 @@ public class BluetoothAutoPlayPlugin extends Plugin {
             if (name != null && !name.isEmpty()) {
                 ed.putString(KEY_NAME, name);
             }
+            String favicon = call.getString("favicon", null);
+            String genre = call.getString("genre", null);
+            String country = call.getString("country", null);
+            if (favicon != null) ed.putString(KEY_FAVICON, favicon);
+            if (genre != null) ed.putString(KEY_GENRE, genre);
+            if (country != null) ed.putString(KEY_COUNTRY, country);
             // commit: сервіс має бачити URL ДО startForegroundService
             ed.commit();
             svc.setAction(RadioWatchService.ACTION_PLAY_URL);
@@ -142,6 +169,9 @@ public class BluetoothAutoPlayPlugin extends Plugin {
         o.put("intendedPlaying", p.getBoolean(KEY_PLAY, false));
         o.put("isPlaying", p.getBoolean(KEY_IS_PLAYING, false));
         o.put("track", p.getString(KEY_TRACK, ""));
+        o.put("favicon", p.getString(KEY_FAVICON, ""));
+        o.put("genre", p.getString(KEY_GENRE, ""));
+        o.put("country", p.getString(KEY_COUNTRY, ""));
         o.put("queueIndex", p.getInt(KEY_QUEUE_INDEX, 0));
         o.put("queueUrls", p.getString(KEY_QUEUE_URLS, "[]"));
         o.put("queueNames", p.getString(KEY_QUEUE_NAMES, "[]"));

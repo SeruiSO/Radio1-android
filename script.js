@@ -120,10 +120,14 @@ function isNativeApp() {
     return !!getNativeAutoPlay();
   }
 }
-function nativeSaveStation(url, name) {
+function nativeSaveStation(url, name, favicon, genre, country) {
   const plugin = getNativeAutoPlay();
   if (!plugin || !url) return;
-  plugin.saveStation({ url: url, name: name || "" }).catch(function () {});
+  var opts = { url: url, name: name || "" };
+  if (favicon) opts.favicon = favicon;
+  if (genre) opts.genre = genre;
+  if (country) opts.country = country;
+  plugin.saveStation(opts).catch(function () {});
 }
 function nativeSetPlaying(value) {
   const plugin = getNativeAutoPlay();
@@ -135,12 +139,15 @@ function nativeRequestReady() {
   if (!plugin) return;
   plugin.requestReady().catch(function () {});
 }
-function nativePlay(url, name) {
+function nativePlay(url, name, favicon, genre, country) {
   const plugin = getNativeAutoPlay();
   if (!plugin) return Promise.resolve();
   const opts = {};
   if (url) opts.url = url;
   if (name) opts.name = name;
+  if (favicon) opts.favicon = favicon;
+  if (genre) opts.genre = genre;
+  if (country) opts.country = country;
   return plugin.play(opts).catch(function () {});
 }
 function nativePause() {
@@ -292,21 +299,36 @@ function nativeSaveQueue(urls, names, index) {
   }).catch(function () {});
 }
 function syncQueueToNative() {
-  if (!isNativeApp()) return;
-  const urls = [];
-  const names = [];
-  (stationItems || []).forEach(function (item) {
-    if (item && item.dataset && item.dataset.value && !item.classList.contains("empty")) {
-      urls.push(item.dataset.value);
-      names.push(item.dataset.name || "");
+  const plugin = getNativeAutoPlay();
+  if (!plugin || !plugin.saveQueue) return;
+  try {
+    const items = stationItems || [];
+    const urls = [];
+    const names = [];
+    const favicons = [];
+    const genres = [];
+    const countries = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (!it || it.classList.contains("empty")) continue;
+      urls.push(it.dataset.value || "");
+      names.push(it.dataset.name || "");
+      favicons.push(it.dataset.favicon || "");
+      genres.push(it.dataset.genre || "");
+      countries.push(it.dataset.country || "");
     }
-  });
-  if (urls.length === 0 && lastStationUrl) {
-    urls.push(lastStationUrl);
-    names.push(lastStationName || "");
-  }
-  const idx = Math.max(0, Math.min(currentIndex || 0, urls.length - 1));
-  nativeSaveQueue(urls, names, idx);
+    let idx = typeof currentIndex === "number" ? currentIndex : 0;
+    if (idx < 0) idx = 0;
+    if (idx >= urls.length) idx = 0;
+    plugin.saveQueue({
+      urls: JSON.stringify(urls),
+      names: JSON.stringify(names),
+      favicons: JSON.stringify(favicons),
+      genres: JSON.stringify(genres),
+      countries: JSON.stringify(countries),
+      index: idx
+    }).catch(function () {});
+  } catch (e) {}
 }
 
 
@@ -2615,7 +2637,7 @@ searchBtn.addEventListener("click", () => {
       lastStationName = item.dataset.name;
       localStorage.setItem("lastStationUrl", lastStationUrl);
       localStorage.setItem("lastStationName", lastStationName);
-      nativeSaveStation(lastStationUrl, lastStationName);
+      nativeSaveStation(lastStationUrl, lastStationName, item.dataset.favicon || "", item.dataset.genre || "", item.dataset.country || "");
       localStorage.setItem(`lastStation_${currentTab}`, index);
       syncQueueToNative();
       
@@ -2644,7 +2666,7 @@ searchBtn.addEventListener("click", () => {
         const playUrl = item.dataset.value;
         const playName = item.dataset.name || lastStationName || "";
         const seq = playSeq;
-        nativePlay(playUrl, playName).then(function () {
+        nativePlay(playUrl, playName, (stationItems[currentIndex] && stationItems[currentIndex].dataset.favicon) || "", (stationItems[currentIndex] && stationItems[currentIndex].dataset.genre) || "", (stationItems[currentIndex] && stationItems[currentIndex].dataset.country) || "").then(function () {
           if (seq !== stationPlaySeq) return; // був новіший тап
         }).catch(function () {});
         try { if (typeof syncPlaybackUi === "function") syncPlaybackUi(true); } catch (e) {}
