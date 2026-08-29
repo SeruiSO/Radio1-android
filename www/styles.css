@@ -397,8 +397,8 @@ h1 {
 }
 /* h1 underline removed */
 
-.theme-toggle,
-.more-btn {
+.appear-btn,
+.more-btn, .theme-toggle {
   position: absolute;
   top: 8px;
   background: var(--surface);
@@ -988,4 +988,134 @@ body {
   flex-direction: column;
   gap: 8px;
   padding: 0 12px 12px;
+}
+
+
+/* ---- appearance / bg presets ---- */
+[data-bg="bg-black"]   { --body-bg: #0a0a0c; --container-bg: #121214; --surface: #1a1a1e; --surface-2: #222228; --text: #F2F2F5; --text-muted: rgba(242,242,245,0.62); }
+[data-bg="bg-graphite"]{ --body-bg: #141418; --container-bg: #1c1c22; --surface: #24242c; --surface-2: #2c2c36; --text: #F2F2F5; --text-muted: rgba(242,242,245,0.62); }
+[data-bg="bg-navy"]    { --body-bg: #0b1020; --container-bg: #121a2e; --surface: #1a2438; --surface-2: #222c44; --text: #E8EEF8; --text-muted: rgba(232,238,248,0.62); }
+[data-bg="bg-forest"]  { --body-bg: #0a1210; --container-bg: #101a16; --surface: #16221c; --surface-2: #1c2a24; --text: #E8F5E9; --text-muted: rgba(232,245,233,0.62); }
+[data-bg="bg-plum"]    { --body-bg: #120a14; --container-bg: #1a101c; --surface: #241828; --surface-2: #2c1e30; --text: #F5E8F8; --text-muted: rgba(245,232,248,0.62); }
+[data-bg="bg-rose"]    { --body-bg: #1a0e12; --container-bg: #22141a; --surface: #2a1a22; --surface-2: #322028; --text: #FCE8F0; --text-muted: rgba(252,232,240,0.62); }
+[data-bg="bg-light"]   { --body-bg: #f4f4f6; --container-bg: #ffffff; --surface: #f0f0f4; --surface-2: #e8e8ee; --text: #1a1a1e; --text-muted: rgba(26,26,30,0.55); --border-subtle: rgba(0,0,0,0.08); --toast-bg: rgba(255,255,255,0.95); --toast-text: #111; }
+
+.appear-menu {
+  position: absolute; top: 8px; left: 10px; height: 40px; width: 40px; z-index: 30;
+}
+.appear-btn {
+  position: absolute; inset: 0; width: 40px; height: 40px;
+  background: var(--surface); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm); color: var(--text); font-size: 18px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.appear-btn:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--border-subtle)); }
+.appear-dropdown {
+  position: absolute; top: calc(100% + 8px); left: 0; min-width: 200px;
+  background: var(--surface-2); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius); box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+  padding: 6px; display: flex; flex-direction: column; gap: 2px; z-index: 40;
+}
+.appear-dropdown[hidden] { display: none !important; }
+.appear-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  text-align: left; background: transparent; border: none; color: var(--text);
+  padding: 10px 12px; border-radius: 8px; font-size: 14px; cursor: pointer;
+}
+.appear-item:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.swatch-row {
+  display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 10px 10px;
+}
+.swatch-row[hidden] { display: none !important; }
+.swatch {
+  width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent;
+  cursor: pointer; padding: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+}
+.swatch.selected { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
+
+/* unified more-menu icons */
+.more-item .mi, .appear-item .mi {
+  width: 22px; height: 22px; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent); font-size: 12px; flex-shrink: 0;
+}
+
+/* station icon as button */
+button.station-icon {
+  border: 1px solid var(--border-subtle); cursor: pointer; padding: 0;
+  font: inherit; color: inherit;
+}
+button.station-icon:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+/* Now Playing sheet */
+.np-sheet {
+  position: fixed; inset: 0; z-index: 3000;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.np-sheet[hidden] { display: none !important; }
+.np-backdrop {
+  position: absolute; inset: 0; background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.np-card {
+  position: relative; width: 100%; max-width: 480px;
+  max-height: 92vh; overflow-y: auto;
+  background: var(--surface-2); border: 1px solid var(--border-subtle);
+  border-radius: 20px 20px 0 0; padding: 20px 20px 28px;
+  box-shadow: 0 -12px 40px rgba(0,0,0,0.5);
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  animation: fadeInUp 0.25s ease;
+}
+.np-close {
+  position: absolute; top: 12px; right: 12px;
+  width: 36px; height: 36px; border-radius: 10px;
+  border: 1px solid var(--border-subtle); background: var(--surface);
+  color: var(--text); cursor: pointer; font-size: 16px;
+}
+.np-art {
+  width: 160px; height: 160px; border-radius: 16px;
+  background: var(--surface); border: 1px solid var(--border-subtle);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 64px; margin-top: 12px;
+  background-size: cover; background-position: center;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.np-name {
+  font-size: 1.35rem; font-weight: 800; text-align: center;
+  color: var(--text); margin-top: 8px; max-width: 100%;
+}
+.np-meta { font-size: 13px; color: var(--text-muted); text-align: center; }
+.np-track {
+  font-size: 15px; font-weight: 600; color: var(--accent);
+  text-align: center; margin-top: 6px; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.np-status { font-size: 12px; color: var(--text-muted); min-height: 16px; }
+.np-controls {
+  display: flex; gap: 20px; align-items: center; margin-top: 16px;
+}
+.np-btn {
+  width: 56px; height: 56px; border-radius: 14px;
+  border: 1px solid var(--border-subtle); background: var(--surface);
+  color: var(--text); font-size: 22px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.np-btn.np-play {
+  width: 72px; height: 72px; border-radius: 16px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.np-btn.np-play.is-playing {
+  background: var(--accent-gradient); color: #0a0a0c; border-color: transparent;
+}
+.np-btn:active { transform: scale(0.96); }
+
+@media (max-width: 720px) {
+  .appear-menu { top: 6px; left: 8px; height: 36px; width: 36px; }
+  .appear-btn { width: 36px; height: 36px; font-size: 16px; }
+  .np-art { width: 132px; height: 132px; font-size: 52px; }
 }

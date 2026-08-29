@@ -637,20 +637,23 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
                     && player.getCurrentMediaItem().localConfiguration != null) {
                 currentUri = player.getCurrentMediaItem().localConfiguration.uri.toString();
             }
-            boolean sameUrl = url.equals(currentUri) || url.equals(lastPlayedUrl);
-            if (sameUrl && (player.isPlaying()
-                    || player.getPlayWhenReady()
-                    || (now - lastPlayMs < 1500))) {
+            boolean sameAsCurrent = currentUri != null && url.equals(currentUri);
+            boolean sameAsLast = url.equals(lastPlayedUrl);
+            // той самий URL і вже грає / щойно стартував — не дергати
+            if (sameAsCurrent && (player.isPlaying() || player.getPlayWhenReady())
+                    && (now - lastPlayMs < 1200)) {
                 android.util.Log.d("RadioWatch", "playUrl skip duplicate: " + url);
-                SharedPreferences spDup = getSharedPreferences(
-                    BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
-                if (!player.isPlaying() && !player.getPlayWhenReady()
-                        && player.getPlaybackState() != Player.STATE_IDLE
-                        && spDup.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)) {
-                    player.setPlayWhenReady(true);
-                }
                 notifyForeground();
                 return;
+            }
+            // ІНШИЙ url — негайно скинути попередній потік (race fix)
+            if (!sameAsCurrent) {
+                try {
+                    player.stop();
+                    player.clearMediaItems();
+                } catch (Exception ignored) {}
+                lastPlayedUrl = "";
+                lastPlayMs = 0;
             }
             if (!requestFocus()) {
                 android.util.Log.w("RadioWatch", "audio focus not granted");

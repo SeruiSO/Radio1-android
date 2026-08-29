@@ -35,6 +35,7 @@ let metadataReaderController = null;
 let metadataRetryTimeout = null;
 let lastStationUrl = localStorage.getItem("lastStationUrl") || "";
 let lastStationName = localStorage.getItem("lastStationName") || "";
+let playGen = 0; /* race: only latest station change wins */
 let recentStations = [];
 try { recentStations = JSON.parse(localStorage.getItem("recentStations") || "[]"); if (!Array.isArray(recentStations)) recentStations = []; } catch (e) { recentStations = []; }
 let sleepTimerId = null;
@@ -328,7 +329,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const stationList = document.getElementById("stationList");
   const playPauseBtn = document.querySelector(".controls .control-btn:nth-child(2)");
   const currentStationInfo = document.getElementById("currentStationInfo");
-  const themeToggle = document.querySelector(".theme-toggle");
+  const themeToggle = document.querySelector(".theme-toggle"); /* may be null — appearance menu */
   const moreMenuBtn = document.getElementById("moreMenuBtn");
   const moreDropdown = document.getElementById("moreDropdown");
   const shareButton = document.querySelector(".share-button");
@@ -2601,6 +2602,8 @@ searchBtn.addEventListener("click", () => {
     }
 
     function changeStation(index) {
+      const myGen = ++playGen;
+
       if (!stationItems || index < 0 || index >= stationItems.length || stationItems[index].classList.contains("empty")) return;
       const item = stationItems[index];
       stationItems.forEach(i => i.classList.remove("selected"));
@@ -3105,3 +3108,222 @@ searchBtn.addEventListener("click", () => {
     applyTheme(currentTheme);
   }
 });
+
+/* FEATURES_1_1_18 */
+(function () {
+  const ACCENTS = [
+    { id: "shadow-pulse", color: "#00E676", label: "Green" },
+    { id: "dark-abyss", color: "#AA00FF", label: "Purple" },
+    { id: "emerald-glow", color: "#2EC4B6", label: "Teal" },
+    { id: "retro-wave", color: "#FF69B4", label: "Pink" },
+    { id: "neon-pulse", color: "#00F0FF", label: "Cyan" },
+    { id: "lime-surge", color: "#B2FF59", label: "Lime" },
+    { id: "flamingo-flash", color: "#FF4081", label: "Flamingo" },
+    { id: "aqua-glow", color: "#26C6DA", label: "Aqua" },
+    { id: "aurora-haze", color: "#64FFDA", label: "Aurora" },
+    { id: "starlit-amethyst", color: "#B388FF", label: "Amethyst" },
+    { id: "lunar-frost", color: "#40C4FF", label: "Frost" }
+  ];
+  const BGS = [
+    { id: "bg-black", color: "#0a0a0c", label: "Black" },
+    { id: "bg-graphite", color: "#1c1c22", label: "Graphite" },
+    { id: "bg-navy", color: "#0b1020", label: "Navy" },
+    { id: "bg-forest", color: "#0a1210", label: "Forest" },
+    { id: "bg-plum", color: "#120a14", label: "Plum" },
+    { id: "bg-rose", color: "#1a0e12", label: "Rose" },
+    { id: "bg-light", color: "#f4f4f6", label: "Light" }
+  ];
+
+  function applyAccent(id) {
+    document.documentElement.setAttribute("data-theme", id);
+    try { localStorage.setItem("theme", id); } catch (e) {}
+    document.querySelectorAll("#accentSwatches .swatch").forEach(function (b) {
+      b.classList.toggle("selected", b.getAttribute("data-id") === id);
+    });
+  }
+  function applyBg(id) {
+    document.documentElement.setAttribute("data-bg", id);
+    try { localStorage.setItem("bgTheme", id); } catch (e) {}
+    document.querySelectorAll("#bgSwatches .swatch").forEach(function (b) {
+      b.classList.toggle("selected", b.getAttribute("data-id") === id);
+    });
+  }
+
+  function buildSwatches() {
+    var ar = document.getElementById("accentSwatches");
+    var br = document.getElementById("bgSwatches");
+    if (ar && !ar.childElementCount) {
+      ACCENTS.forEach(function (a) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "swatch";
+        b.title = a.label;
+        b.setAttribute("data-id", a.id);
+        b.style.background = a.color;
+        b.addEventListener("click", function (e) {
+          e.stopPropagation();
+          applyAccent(a.id);
+        });
+        ar.appendChild(b);
+      });
+    }
+    if (br && !br.childElementCount) {
+      BGS.forEach(function (a) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "swatch";
+        b.title = a.label;
+        b.setAttribute("data-id", a.id);
+        b.style.background = a.color;
+        b.addEventListener("click", function (e) {
+          e.stopPropagation();
+          applyBg(a.id);
+        });
+        br.appendChild(b);
+      });
+    }
+  }
+
+  function initAppearance() {
+    buildSwatches();
+    var savedTheme = localStorage.getItem("theme") || "shadow-pulse";
+    var savedBg = localStorage.getItem("bgTheme") || "bg-black";
+    applyAccent(savedTheme);
+    applyBg(savedBg);
+
+    var btn = document.getElementById("appearMenuBtn");
+    var dd = document.getElementById("appearDropdown");
+    var accentBtn = document.getElementById("accentPickBtn");
+    var bgBtn = document.getElementById("bgPickBtn");
+    var accentRow = document.getElementById("accentSwatches");
+    var bgRow = document.getElementById("bgSwatches");
+    if (!btn || !dd) return;
+
+    function closeAppear() {
+      dd.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+      if (accentRow) accentRow.hidden = true;
+      if (bgRow) bgRow.hidden = true;
+    }
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var open = dd.hidden;
+      // close more menu if open
+      try {
+        var md = document.getElementById("moreDropdown");
+        if (md) md.hidden = true;
+      } catch (err) {}
+      dd.hidden = !open;
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    if (accentBtn) {
+      accentBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        if (accentRow) accentRow.hidden = !accentRow.hidden;
+        if (bgRow) bgRow.hidden = true;
+      });
+    }
+    if (bgBtn) {
+      bgBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        if (bgRow) bgRow.hidden = !bgRow.hidden;
+        if (accentRow) accentRow.hidden = true;
+      });
+    }
+    document.addEventListener("click", function (e) {
+      if (!dd.hidden && !dd.contains(e.target) && e.target !== btn) closeAppear();
+    });
+  }
+
+  function openNowPlaying() {
+    var sheet = document.getElementById("nowPlayingSheet");
+    if (!sheet) return;
+    refreshNowPlaying();
+    sheet.hidden = false;
+  }
+  function closeNowPlaying() {
+    var sheet = document.getElementById("nowPlayingSheet");
+    if (sheet) sheet.hidden = true;
+  }
+  function refreshNowPlaying() {
+    var nameEl = document.querySelector("#currentStationInfo .station-name");
+    var genreEl = document.querySelector("#currentStationInfo .station-genre");
+    var countryEl = document.querySelector("#currentStationInfo .station-country");
+    var trackEl = document.getElementById("currentTrack");
+    var statusEl = document.getElementById("playbackStatus");
+    var iconBtn = document.getElementById("stationIconBtn");
+    var npName = document.getElementById("npName");
+    var npGenre = document.getElementById("npGenre");
+    var npCountry = document.getElementById("npCountry");
+    var npTrack = document.getElementById("npTrack");
+    var npStatus = document.getElementById("npStatus");
+    var npArt = document.getElementById("npArt");
+    var npPlay = document.getElementById("npPlay");
+    if (npName) npName.textContent = (nameEl && nameEl.textContent) || lastStationName || "—";
+    if (npGenre) npGenre.textContent = (genreEl && genreEl.textContent) || "жанр: —";
+    if (npCountry) npCountry.textContent = (countryEl && countryEl.textContent) || "країна: —";
+    if (npTrack) npTrack.textContent = (trackEl && trackEl.textContent) || "🎵 Трек: невідомо";
+    if (npStatus) npStatus.textContent = (statusEl && statusEl.textContent) || "";
+    if (npArt && iconBtn) {
+      var bg = iconBtn.style.backgroundImage;
+      if (bg && bg !== "none" && bg.indexOf("url") !== -1) {
+        npArt.style.backgroundImage = bg;
+        npArt.textContent = "";
+      } else {
+        npArt.style.backgroundImage = "";
+        npArt.textContent = "🎵";
+      }
+    }
+    if (npPlay) {
+      var playing = typeof isPlaying !== "undefined" && isPlaying;
+      npPlay.textContent = playing ? "⏸" : "▶";
+      npPlay.classList.toggle("is-playing", !!playing);
+    }
+  }
+
+  function initNowPlaying() {
+    var icon = document.getElementById("stationIconBtn");
+    if (icon) icon.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      openNowPlaying();
+    });
+    var closeBtn = document.getElementById("npClose");
+    var backdrop = document.getElementById("npBackdrop");
+    if (closeBtn) closeBtn.addEventListener("click", closeNowPlaying);
+    if (backdrop) backdrop.addEventListener("click", closeNowPlaying);
+    var npPrev = document.getElementById("npPrev");
+    var npNext = document.getElementById("npNext");
+    var npPlay = document.getElementById("npPlay");
+    if (npPrev) npPrev.addEventListener("click", function () {
+      var b = document.querySelector(".controls .control-btn:nth-child(1)");
+      if (b) b.click();
+      setTimeout(refreshNowPlaying, 200);
+    });
+    if (npNext) npNext.addEventListener("click", function () {
+      var b = document.querySelector(".controls .control-btn:nth-child(3)");
+      if (b) b.click();
+      setTimeout(refreshNowPlaying, 200);
+    });
+    if (npPlay) npPlay.addEventListener("click", function () {
+      var b = document.querySelector(".controls .control-btn:nth-child(2)");
+      if (b) b.click();
+      setTimeout(refreshNowPlaying, 200);
+    });
+    window.addEventListener("native-playback", function () { refreshNowPlaying(); });
+    window.addEventListener("track-meta", function () { refreshNowPlaying(); });
+    window.addEventListener("native-status", function () { refreshNowPlaying(); });
+  }
+
+  function bootFeatures() {
+    try { initAppearance(); } catch (e) { console.log("appear", e); }
+    try { initNowPlaying(); } catch (e) { console.log("np", e); }
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bootFeatures);
+  } else {
+    setTimeout(bootFeatures, 0);
+  }
+  // also after initializeApp settles
+  setTimeout(bootFeatures, 800);
+})();

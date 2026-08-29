@@ -15,17 +15,29 @@
 </head>
 <body>
   <div class="container">
-    <!-- Тема + меню ⋯ -->
-    <button class="theme-toggle" aria-label="Змінити тему">🌙</button>
+    <!-- Оформлення (ліворуч) + меню ⋯ -->
+    <div class="appear-menu" id="appearMenu">
+      <button type="button" class="appear-btn" id="appearMenuBtn" aria-label="Оформлення" aria-expanded="false">🎨</button>
+      <div class="appear-dropdown" id="appearDropdown" hidden>
+        <button type="button" class="appear-item" id="accentPickBtn" aria-expanded="false">
+          <span class="mi">●</span> Акцент
+        </button>
+        <div class="swatch-row" id="accentSwatches" hidden></div>
+        <button type="button" class="appear-item" id="bgPickBtn" aria-expanded="false">
+          <span class="mi">▢</span> Тло
+        </button>
+        <div class="swatch-row" id="bgSwatches" hidden></div>
+      </div>
+    </div>
     <div class="more-menu">
       <button type="button" class="more-btn" id="moreMenuBtn" aria-label="Меню" aria-expanded="false">⋯</button>
       <div class="more-dropdown" id="moreDropdown" hidden>
-        <button type="button" class="more-item share-button" aria-label="Поділитися">📢 Поділитися</button>
-        <button type="button" class="more-item export-button" aria-label="Експорт">📤 Експорт</button>
-        <button type="button" class="more-item import-button" aria-label="Імпорт">📥 Імпорт</button>
-        <button type="button" class="more-item bt-watch-btn" id="btWatchBtn" aria-label="BT стеження">🔵 BT стеження: увімк</button>
+        <button type="button" class="more-item share-button" aria-label="Поділитися"><span class="mi">↗</span> Поділитися</button>
+        <button type="button" class="more-item export-button" aria-label="Експорт"><span class="mi">↑</span> Експорт</button>
+        <button type="button" class="more-item import-button" aria-label="Імпорт"><span class="mi">↓</span> Імпорт</button>
+        <button type="button" class="more-item bt-watch-btn" id="btWatchBtn" aria-label="BT стеження"><span class="mi">◉</span> BT стеження: увімк</button>
         <div class="sleep-wrap">
-        <button type="button" class="more-item" id="sleepTimerBtn" aria-label="Таймер сну" aria-expanded="false">⏱ Таймер сну</button>
+        <button type="button" class="more-item" id="sleepTimerBtn" aria-label="Таймер сну" aria-expanded="false"><span class="mi">◔</span> Таймер сну</button>
         <div class="sleep-menu" id="sleepTimerMenu" hidden>
           <button type="button" class="sleep-opt" data-mins="15">15 хв</button>
           <button type="button" class="sleep-opt" data-mins="30">30 хв</button>
@@ -49,7 +61,7 @@
     <!-- Current Station Info -->
     <div id="currentStationInfo" role="region" aria-label="Інформація про поточну станцію">
       <div class="station-info-content">
-        <div class="station-icon" role="img" aria-label="Іконка станції">🎵</div>
+        <button type="button" class="station-icon" id="stationIconBtn" role="button" aria-label="Now Playing">🎵</button>
         <div class="station-text">
           <div class="station-name" aria-label="Назва станції">Виберіть станцію</div>
           <div class="station-genre" aria-label="Жанр">жанр: -</div>
@@ -129,7 +141,26 @@
     </div>
 
   </div>
-  
+
+  <!-- Full-screen Now Playing -->
+  <div id="nowPlayingSheet" class="np-sheet" hidden>
+    <div class="np-backdrop" id="npBackdrop"></div>
+    <div class="np-card" role="dialog" aria-label="Now Playing">
+      <button type="button" class="np-close" id="npClose" aria-label="Закрити">✕</button>
+      <div class="np-art" id="npArt">🎵</div>
+      <div class="np-name" id="npName">—</div>
+      <div class="np-meta" id="npGenre">жанр: —</div>
+      <div class="np-meta" id="npCountry">країна: —</div>
+      <div class="np-track" id="npTrack">🎵 Трек: невідомо</div>
+      <div class="np-status" id="npStatus"></div>
+      <div class="np-controls">
+        <button type="button" class="np-btn" id="npPrev" aria-label="Попередня">⏮</button>
+        <button type="button" class="np-btn np-play" id="npPlay" aria-label="Грати">▶</button>
+        <button type="button" class="np-btn" id="npNext" aria-label="Наступна">⏭</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Service Worker Registration -->
   <script>
     if ('serviceWorker' in navigator) {
