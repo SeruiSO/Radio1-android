@@ -35,6 +35,7 @@ let metadataReaderController = null;
 let metadataRetryTimeout = null;
 let lastStationUrl = localStorage.getItem("lastStationUrl") || "";
 let lastStationName = localStorage.getItem("lastStationName") || "";
+let stationPlaySeq = 0; /* fast-tap: only latest changeStation play */
 let recentStations = [];
 try { recentStations = JSON.parse(localStorage.getItem("recentStations") || "[]"); if (!Array.isArray(recentStations)) recentStations = []; } catch (e) { recentStations = []; }
 let sleepTimerId = null;
@@ -2601,6 +2602,8 @@ searchBtn.addEventListener("click", () => {
     }
 
     function changeStation(index) {
+      const playSeq = ++stationPlaySeq;
+
       if (!stationItems || index < 0 || index >= stationItems.length || stationItems[index].classList.contains("empty")) return;
       const item = stationItems[index];
       stationItems.forEach(i => i.classList.remove("selected"));
@@ -3106,6 +3109,7 @@ searchBtn.addEventListener("click", () => {
   }
 });
 
+/* NATIVE_PLAY_SEQ: stationPlaySeq bumped in changeStation; service cancels reconnect */
 /* NP_SHEET_ONLY */
 (function () {
   function refreshNowPlaying() {

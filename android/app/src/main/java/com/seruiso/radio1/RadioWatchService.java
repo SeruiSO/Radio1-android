@@ -637,21 +637,24 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
                     && player.getCurrentMediaItem().localConfiguration != null) {
                 currentUri = player.getCurrentMediaItem().localConfiguration.uri.toString();
             }
-            boolean sameUrl = url.equals(currentUri) || url.equals(lastPlayedUrl);
-            if (sameUrl && (player.isPlaying()
-                    || player.getPlayWhenReady()
-                    || (now - lastPlayMs < 1500))) {
+            // Дубль лише якщо ЦЕЙ САМИЙ uri уже в плеєрі і реально грає/стартує.
+            // lastPlayedUrl НЕ порівнюємо — інакше швидкий A→B→A або зміна
+            // під час буфера блокує новий play.
+            boolean sameAsCurrent = currentUri != null && url.equals(currentUri);
+            if (sameAsCurrent
+                    && (player.isPlaying() || player.getPlayWhenReady())
+                    && (now - lastPlayMs < 500)) {
                 android.util.Log.d("RadioWatch", "playUrl skip duplicate: " + url);
-                SharedPreferences spDup = getSharedPreferences(
-                    BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
-                if (!player.isPlaying() && !player.getPlayWhenReady()
-                        && player.getPlaybackState() != Player.STATE_IDLE
-                        && spDup.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)) {
-                    player.setPlayWhenReady(true);
-                }
                 notifyForeground();
                 return;
             }
+
+            // Скасувати відкладений reconnect старого URL (головне при швидкому skip)
+            if (reconnectHandler != null) {
+                reconnectHandler.removeCallbacksAndMessages(null);
+            }
+            reconnectAttempt = 0;
+
             if (!requestFocus()) {
                 android.util.Log.w("RadioWatch", "audio focus not granted");
             }
@@ -669,18 +672,19 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
                     .setSubtitle("Radio S O")
                     .build())
                 .build();
-            player.setMediaItem(item);
+            // Заміна потоку без stop()/clear — ExoPlayer сам кине попередній load
+            player.setMediaItem(item, /* resetPosition= */ true);
             player.prepare();
             player.setPlayWhenReady(true);
-            reconnectAttempt = 0;
             writePlayingFlag(true);
+            try { writeActuallyPlaying(true); } catch (Exception ignored) {}
             notifyUiStatus("connecting", 0);
             bufferingTicks = 0;
             notifyForeground();
         } catch (Exception e) {
             android.util.Log.e("RadioWatch", "playUrl failed: " + url, e);
             try {
-                if (player != null) player.stop();
+                if (player != null) player.setPlayWhenReady(false);
             } catch (Exception ignored) {}
             notifyForeground();
         }
