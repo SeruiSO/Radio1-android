@@ -3105,3 +3105,86 @@ searchBtn.addEventListener("click", () => {
     applyTheme(currentTheme);
   }
 });
+
+/* NP_SHEET_ONLY */
+(function () {
+  function refreshNowPlaying() {
+    var nameEl = document.querySelector("#currentStationInfo .station-name");
+    var genreEl = document.querySelector("#currentStationInfo .station-genre");
+    var countryEl = document.querySelector("#currentStationInfo .station-country");
+    var trackEl = document.getElementById("currentTrack");
+    var statusEl = document.getElementById("playbackStatus");
+    var iconBtn = document.getElementById("stationIconBtn");
+    var npName = document.getElementById("npName");
+    var npGenre = document.getElementById("npGenre");
+    var npCountry = document.getElementById("npCountry");
+    var npTrack = document.getElementById("npTrack");
+    var npStatus = document.getElementById("npStatus");
+    var npArt = document.getElementById("npArt");
+    var npPlay = document.getElementById("npPlay");
+    if (npName) npName.textContent = (nameEl && nameEl.textContent) || (typeof lastStationName !== "undefined" ? lastStationName : "—") || "—";
+    if (npGenre) npGenre.textContent = (genreEl && genreEl.textContent) || "жанр: —";
+    if (npCountry) npCountry.textContent = (countryEl && countryEl.textContent) || "країна: —";
+    if (npTrack) npTrack.textContent = (trackEl && trackEl.textContent) || "🎵 Трек: невідомо";
+    if (npStatus) npStatus.textContent = (statusEl && statusEl.textContent) || "";
+    if (npArt && iconBtn) {
+      var bg = iconBtn.style.backgroundImage;
+      if (bg && bg.indexOf("url") !== -1) {
+        npArt.style.backgroundImage = bg;
+        npArt.textContent = "";
+      } else {
+        npArt.style.backgroundImage = "";
+        npArt.textContent = "🎵";
+      }
+    }
+    if (npPlay) {
+      var playing = typeof isPlaying !== "undefined" && isPlaying;
+      npPlay.textContent = playing ? "⏸" : "▶";
+      npPlay.classList.toggle("is-playing", !!playing);
+    }
+  }
+  function openNP() {
+    var sheet = document.getElementById("nowPlayingSheet");
+    if (!sheet) return;
+    refreshNowPlaying();
+    sheet.hidden = false;
+  }
+  function closeNP() {
+    var sheet = document.getElementById("nowPlayingSheet");
+    if (sheet) sheet.hidden = true;
+  }
+  function bind() {
+    var icon = document.getElementById("stationIconBtn");
+    if (icon && !icon._npBound) {
+      icon._npBound = true;
+      icon.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        openNP();
+      });
+    }
+    var c = document.getElementById("npClose");
+    var b = document.getElementById("npBackdrop");
+    if (c && !c._npBound) { c._npBound = true; c.addEventListener("click", closeNP); }
+    if (b && !b._npBound) { b._npBound = true; b.addEventListener("click", closeNP); }
+    function wire(id, sel) {
+      var el = document.getElementById(id);
+      if (!el || el._npBound) return;
+      el._npBound = true;
+      el.addEventListener("click", function () {
+        var btn = document.querySelector(sel);
+        if (btn) btn.click();
+        setTimeout(refreshNowPlaying, 250);
+      });
+    }
+    wire("npPrev", ".controls .control-btn:nth-child(1)");
+    wire("npPlay", ".controls .control-btn:nth-child(2)");
+    wire("npNext", ".controls .control-btn:nth-child(3)");
+    window.addEventListener("native-playback", refreshNowPlaying);
+    window.addEventListener("track-meta", refreshNowPlaying);
+    window.addEventListener("native-status", refreshNowPlaying);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind);
+  else bind();
+  setTimeout(bind, 500);
+})();
