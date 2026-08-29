@@ -73,14 +73,21 @@ public class BluetoothAutoPlayPlugin extends Plugin {
         String name = call.getString("name", null);
         Intent svc = new Intent(getContext(), RadioWatchService.class);
         if (url != null && !url.isEmpty()) {
-            if (name != null) {
-                SharedPreferences p = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-                p.edit().putString(KEY_URL, url).putString(KEY_NAME, name).apply();
+            SharedPreferences p = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            SharedPreferences.Editor ed = p.edit()
+                .putString(KEY_URL, url)
+                .putBoolean(KEY_PLAY, true);
+            if (name != null && !name.isEmpty()) {
+                ed.putString(KEY_NAME, name);
             }
+            // commit: сервіс має бачити URL ДО startForegroundService
+            ed.commit();
             svc.setAction(RadioWatchService.ACTION_PLAY_URL);
             svc.putExtra(RadioWatchService.EXTRA_URL, url);
             if (name != null) svc.putExtra(RadioWatchService.EXTRA_NAME, name);
         } else {
+            getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_PLAY, true).commit();
             svc.setAction(RadioWatchService.ACTION_PLAY);
         }
         startSvc(svc);

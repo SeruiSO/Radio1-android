@@ -606,11 +606,19 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         }
 
         if (ACTION_PLAY_URL.equals(action) && intent != null) {
-            getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
-                .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, true).apply();
             String url = intent.getStringExtra(EXTRA_URL);
             String name = intent.getStringExtra(EXTRA_NAME);
-            if (name != null && !name.isEmpty()) currentName = name;
+            SharedPreferences.Editor ed = getSharedPreferences(
+                BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE).edit()
+                .putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, true);
+            if (url != null && !url.isEmpty()) {
+                ed.putString(BluetoothAutoPlayPlugin.KEY_URL, url);
+            }
+            if (name != null && !name.isEmpty()) {
+                currentName = name;
+                ed.putString(BluetoothAutoPlayPlugin.KEY_NAME, name);
+            }
+            ed.commit();
             playUrl(url);
             return START_STICKY;
         }

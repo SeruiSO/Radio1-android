@@ -2628,7 +2628,27 @@ searchBtn.addEventListener("click", () => {
         setTimeout(() => currentStationInfo.classList.remove("fade-in"), 300);
       }, 150);
       
-      if (intendedPlaying) {
+      // --- Play: у native ЗАВЖДИ останній тап → nativePlay одразу ---
+      // debouncedTryAutoPlay + isAutoPlayPending блокували 2-й тап → UI нова, звук стара
+      if (typeof isNativeApp === "function" && isNativeApp()) {
+        try { if (typeof autoPlayTimeout !== "undefined" && autoPlayTimeout) clearTimeout(autoPlayTimeout); } catch (e) {}
+        isAutoPlayPending = false;
+        autoPlayRequestId++; // скасувати pending tryAutoPlay
+        intendedPlaying = true;
+        isPlaying = true;
+        try {
+          localStorage.setItem("intendedPlaying", "true");
+          localStorage.setItem("isPlaying", "true");
+        } catch (e) {}
+        try { if (typeof nativeSetPlaying === "function") nativeSetPlaying(true); } catch (e) {}
+        const playUrl = item.dataset.value;
+        const playName = item.dataset.name || lastStationName || "";
+        const seq = playSeq;
+        nativePlay(playUrl, playName).then(function () {
+          if (seq !== stationPlaySeq) return; // був новіший тап
+        }).catch(function () {});
+        try { if (typeof syncPlaybackUi === "function") syncPlaybackUi(true); } catch (e) {}
+      } else if (intendedPlaying) {
         const normalizedCurrentUrl = normalizeUrl(item.dataset.value);
         const normalizedAudioSrc = normalizeUrl(audio.src);
         if (normalizedAudioSrc !== normalizedCurrentUrl || audio.paused || audio.error || audio.readyState < 2) {
