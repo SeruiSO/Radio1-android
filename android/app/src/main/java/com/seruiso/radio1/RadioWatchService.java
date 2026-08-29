@@ -75,6 +75,14 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
     private String lastTrackTitle = "";
     private Bitmap stationArt = null;
     private String stationArtUrl = "";
+    private int artGen = 0;
+    private final java.util.Map<String, Bitmap> artCache = new java.util.LinkedHashMap<String, Bitmap>(16, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(java.util.Map.Entry<String, Bitmap> e) {
+            return size() > 24;
+        }
+    };
+    private static final int ART_MAX_BYTES = 512 * 1024;
+    private Runnable widgetUpdateRunnable;
     private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private AudioManager audioManager;
     private AudioFocusRequest focusRequest;
@@ -199,7 +207,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
                 writeActuallyPlaying(isPlaying);
                 notifyForeground();
                 notifyUiPlayback(isPlaying);
-                try { RadioAppWidget.updateAll(RadioWatchService.this, stationArt); } catch (Exception ignored) {}
+                try { scheduleWidgetUpdate(); } catch (Exception ignored) {}
             }
 
             @Override
@@ -457,6 +465,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             // скинути кеш іконки щоб форсовано перезавантажити
             stationArt = null;
             stationArtUrl = "";
+            artGen++;
             playUrl(url);
             loadStationArtAsync();
             notifyUiSkip(next);
@@ -473,15 +482,44 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
     }
 
 
+
+    private void scheduleWidgetUpdate() {
+        if (widgetUpdateRunnable != null) {
+            mainHandler.removeCallbacks(widgetUpdateRunnable);
+        }
+        widgetUpdateRunnable = () -> {
+            try {
+                RadioAppWidget.updateAll(RadioWatchService.this, stationArt);
+            } catch (Exception ignored) {}
+            widgetUpdateRunnable = null;
+        };
+        mainHandler.postDelayed(widgetUpdateRunnable, 180);
+    }
+
     private void loadStationArtAsync() {
         SharedPreferences sp = getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
         final String fav = sp.getString(BluetoothAutoPlayPlugin.KEY_FAVICON, "");
         if (fav == null || fav.isEmpty()) {
             stationArt = null;
             stationArtUrl = "";
+            artGen++;
             return;
         }
+        // memory cache hit
+        synchronized (artCache) {
+            Bitmap cached = artCache.get(fav);
+            if (cached != null && !cached.isRecycled()) {
+                stationArt = cached;
+                stationArtUrl = fav;
+                applySessionMetadata(currentName, lastTrackTitle);
+                notifyForeground();
+                scheduleWidgetUpdate();
+                return;
+            }
+        }
         if (fav.equals(stationArtUrl) && stationArt != null) return;
+
+        final int gen = ++artGen;
         stationArtUrl = fav;
         new Thread(() -> {
             Bitmap bmp = null;
@@ -493,19 +531,39 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
                 conn.setReadTimeout(4000);
                 conn.setInstanceFollowRedirects(true);
                 conn.connect();
-                if (conn.getResponseCode() == 200) {
-                    InputStream is = conn.getInputStream();
-                    Bitmap raw = BitmapFactory.decodeStream(is);
-                    is.close();
-                    if (raw != null) {
-                        int max = 256;
-                        int w = raw.getWidth(), h = raw.getHeight();
-                        if (w > max || h > max) {
-                            float s = Math.min((float) max / w, (float) max / h);
-                            bmp = Bitmap.createScaledBitmap(raw, Math.round(w * s), Math.round(h * s), true);
-                            if (bmp != raw) raw.recycle();
+                int code = conn.getResponseCode();
+                if (code == 200) {
+                    int cl = conn.getContentLength();
+                    if (cl > ART_MAX_BYTES) {
+                        android.util.Log.w("RadioWatch", "art too large by CL: " + cl);
+                    } else {
+                        InputStream is = conn.getInputStream();
+                        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                        byte[] buf = new byte[4096];
+                        int n, total = 0;
+                        boolean tooBig = false;
+                        while ((n = is.read(buf)) != -1) {
+                            total += n;
+                            if (total > ART_MAX_BYTES) { tooBig = true; break; }
+                            bos.write(buf, 0, n);
+                        }
+                        is.close();
+                        if (!tooBig) {
+                            byte[] data = bos.toByteArray();
+                            Bitmap raw = BitmapFactory.decodeByteArray(data, 0, data.length);
+                            if (raw != null) {
+                                int max = 256;
+                                int w = raw.getWidth(), h = raw.getHeight();
+                                if (w > max || h > max) {
+                                    float s = Math.min((float) max / w, (float) max / h);
+                                    bmp = Bitmap.createScaledBitmap(raw, Math.round(w * s), Math.round(h * s), true);
+                                    if (bmp != raw) raw.recycle();
+                                } else {
+                                    bmp = raw;
+                                }
+                            }
                         } else {
-                            bmp = raw;
+                            android.util.Log.w("RadioWatch", "art too large while reading");
                         }
                     }
                 }
@@ -516,10 +574,22 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             }
             final Bitmap result = bmp;
             mainHandler.post(() -> {
+                // застаріла відповідь — ігноруємо
+                if (gen != artGen) {
+                    if (result != null) {
+                        try { result.recycle(); } catch (Exception ignored) {}
+                    }
+                    return;
+                }
+                if (result != null) {
+                    synchronized (artCache) {
+                        artCache.put(fav, result);
+                    }
+                }
                 stationArt = result;
                 applySessionMetadata(currentName, lastTrackTitle);
                 notifyForeground();
-                try { RadioAppWidget.updateAll(RadioWatchService.this, stationArt); } catch (Exception ignored) {}
+                scheduleWidgetUpdate();
             });
         }).start();
     }
@@ -668,7 +738,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             writeActuallyPlaying(false);
             notifyForeground();
             notifyUiPlayback(false);
-            try { RadioAppWidget.updateAll(this, stationArt); } catch (Exception ignored) {}
+            try { scheduleWidgetUpdate(); } catch (Exception ignored) {}
             return START_STICKY;
         }
 
@@ -868,7 +938,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
         } else {
             startForeground(NOTIF_ID, n);
         }
-        try { RadioAppWidget.updateAll(this, stationArt); } catch (Exception ignored) {}
+        try { scheduleWidgetUpdate(); } catch (Exception ignored) {}
     }
 
     private Notification buildNotification() {
