@@ -1,6 +1,12 @@
 package com.seruiso.radio1;
 
 import android.Manifest;
+import org.json.JSONObject;
+import org.json.JSONArray;
+import android.provider.MediaStore;
+import android.net.Uri;
+import android.database.Cursor;
+import android.content.ContentUris;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -18,7 +24,9 @@ import com.getcapacitor.annotation.PermissionCallback;
     name = "BluetoothAutoPlay",
     permissions = {
         @Permission(alias = "bt", strings = { Manifest.permission.BLUETOOTH_CONNECT }),
-        @Permission(alias = "notify", strings = { Manifest.permission.POST_NOTIFICATIONS })
+        @Permission(alias = "notify", strings = { Manifest.permission.POST_NOTIFICATIONS }),
+        @Permission(alias = "media13", strings = { Manifest.permission.READ_MEDIA_AUDIO }),
+        @Permission(alias = "storage", strings = { Manifest.permission.READ_EXTERNAL_STORAGE })
     }
 )
 public class BluetoothAutoPlayPlugin extends Plugin {
@@ -40,6 +48,7 @@ public class BluetoothAutoPlayPlugin extends Plugin {
     public static final String KEY_FAVICON = "lastStationFavicon";
     public static final String KEY_GENRE = "lastStationGenre";
     public static final String KEY_COUNTRY = "lastStationCountry";
+    public static final String KEY_SOURCE = "playbackSource"; // radio | local
 
     @PluginMethod
     public void saveStation(PluginCall call) {
@@ -107,6 +116,8 @@ public class BluetoothAutoPlayPlugin extends Plugin {
             if (favicon != null) ed.putString(KEY_FAVICON, favicon);
             if (genre != null) ed.putString(KEY_GENRE, genre);
             if (country != null) ed.putString(KEY_COUNTRY, country);
+            boolean isLocal = url.startsWith("content://") || url.startsWith("file://");
+            ed.putString(KEY_SOURCE, isLocal ? "local" : "radio");
             // commit: сервіс має бачити URL ДО startForegroundService
             ed.commit();
             svc.setAction(RadioWatchService.ACTION_PLAY_URL);
@@ -175,6 +186,7 @@ public class BluetoothAutoPlayPlugin extends Plugin {
         o.put("queueIndex", p.getInt(KEY_QUEUE_INDEX, 0));
         o.put("queueUrls", p.getString(KEY_QUEUE_URLS, "[]"));
         o.put("queueNames", p.getString(KEY_QUEUE_NAMES, "[]"));
+        o.put("source", p.getString(KEY_SOURCE, "radio"));
         call.resolve(o);
     }
 
@@ -197,7 +209,119 @@ public class BluetoothAutoPlayPlugin extends Plugin {
         requestReady(call);
     }
 
+
+    @PluginMethod
+    public void requestMediaPermission(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (getPermissionState("media13") != PermissionState.GRANTED) {
+                requestPermissionForAlias("media13", call, "mediaPermDone");
+                return;
+            }
+        } else {
+            if (getPermissionState("storage") != PermissionState.GRANTED) {
+                requestPermissionForAlias("storage", call, "mediaPermDone");
+                return;
+            }
+        }
+        JSObject o = new JSObject();
+        o.put("granted", true);
+        call.resolve(o);
+    }
+
+    @PermissionCallback
+    private void mediaPermDone(PluginCall call) {
+        boolean ok;
+        if (Build.VERSION.SDK_INT >= 33) {
+            ok = getPermissionState("media13") == PermissionState.GRANTED;
+        } else {
+            ok = getPermissionState("storage") == PermissionState.GRANTED;
+        }
+        JSObject o = new JSObject();
+        o.put("granted", ok);
+        call.resolve(o);
+    }
+
+    @PluginMethod
+    public void listLocalTracks(PluginCall call) {
+        try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                if (getPermissionState("media13") != PermissionState.GRANTED) {
+                    call.reject("NO_PERMISSION");
+                    return;
+                }
+            } else {
+                if (getPermissionState("storage") != PermissionState.GRANTED) {
+                    call.reject("NO_PERMISSION");
+                    return;
+                }
+            }
+
+            String[] projection = new String[] {
+                MediaStore.Audio.Media._ID,
+                MediaStore.Audio.Media.TITLE,
+                MediaStore.Audio.Media.ARTIST,
+                MediaStore.Audio.Media.ALBUM,
+                MediaStore.Audio.Media.DURATION,
+                MediaStore.Audio.Media.ALBUM_ID
+            };
+            String selection = MediaStore.Audio.Media.IS_MUSIC + " != 0";
+            String sort = MediaStore.Audio.Media.TITLE + " COLLATE NOCASE ASC";
+            Uri collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+
+            JSONArray arr = new JSONArray();
+            Cursor c = getContext().getContentResolver().query(
+                collection, projection, selection, null, sort);
+            if (c != null) {
+                int iId = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID);
+                int iTitle = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE);
+                int iArtist = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST);
+                int iAlbum = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM);
+                int iDur = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION);
+                int iAlbumId = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID);
+                int limit = 5000;
+                int n = 0;
+                while (c.moveToNext() && n < limit) {
+                    long id = c.getLong(iId);
+                    String title = c.getString(iTitle);
+                    String artist = c.getString(iArtist);
+                    String album = c.getString(iAlbum);
+                    long dur = c.getLong(iDur);
+                    long albumId = c.getLong(iAlbumId);
+                    if (title == null || title.trim().isEmpty()) title = "Unknown";
+                    if (artist == null || artist.trim().isEmpty() || "<unknown>".equalsIgnoreCase(artist))
+                        artist = "Unknown";
+                    if (album == null) album = "";
+                    Uri contentUri = ContentUris.withAppendedId(
+                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id);
+                    String art = "";
+                    if (albumId > 0) {
+                        art = ContentUris.withAppendedId(
+                            Uri.parse("content://media/external/audio/albumart"), albumId).toString();
+                    }
+                    JSONObject tr = new JSONObject();
+                    tr.put("id", String.valueOf(id));
+                    tr.put("url", contentUri.toString());
+                    tr.put("name", title);
+                    tr.put("artist", artist);
+                    tr.put("album", album);
+                    tr.put("duration", dur);
+                    tr.put("favicon", art);
+                    arr.put(tr);
+                    n++;
+                }
+                c.close();
+            }
+            JSObject out = new JSObject();
+            out.put("tracks", arr);
+            out.put("count", arr.length());
+            call.resolve(out);
+        } catch (Exception e) {
+            call.reject("LIST_FAILED: " + e.getMessage());
+        }
+    }
+
     private void startWatchService() {
+
         Intent svc = new Intent(getContext(), RadioWatchService.class);
         svc.setAction(RadioWatchService.ACTION_START);
         startSvc(svc);

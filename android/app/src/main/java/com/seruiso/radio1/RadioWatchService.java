@@ -245,11 +245,27 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
 
             @Override
             public void onPlaybackStateChanged(int state) {
-                if (state == Player.STATE_ENDED || state == Player.STATE_IDLE) {
+                if (state == Player.STATE_ENDED) {
+                    SharedPreferences sp = getSharedPreferences(
+                        BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
+                    if (!sp.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false) || pausedByFocusLoss) {
+                        return;
+                    }
+                    if (isLocalPlayback()) {
+                        // кінець треку → наступний у черзі (не reconnect стріму)
+                        android.util.Log.i("RadioWatch", "local ENDED → skip next");
+                        skip(true);
+                    } else {
+                        scheduleReconnect();
+                    }
+                    return;
+                }
+                if (state == Player.STATE_IDLE) {
                     SharedPreferences sp = getSharedPreferences(
                         BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
                     if (sp.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)
-                            && !pausedByFocusLoss) {
+                            && !pausedByFocusLoss
+                            && !isLocalPlayback()) {
                         scheduleReconnect();
                     }
                 }
@@ -274,6 +290,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
                         SharedPreferences sp = getSharedPreferences(
                             BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
                         if (!sp.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)) return;
+                        if (isLocalPlayback()) return;
                         if (player != null && player.isPlaying()) {
                             reconnectAttempt = 0;
                             notifyUiStatus("playing", 0);
@@ -478,6 +495,20 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
 
 
 
+
+    private boolean isLocalPlayback() {
+        try {
+            SharedPreferences sp = getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
+            String src = sp.getString(BluetoothAutoPlayPlugin.KEY_SOURCE, "radio");
+            if ("local".equals(src)) return true;
+            String u = currentPlayUrl;
+            if (u == null || u.isEmpty()) u = sp.getString(BluetoothAutoPlayPlugin.KEY_URL, "");
+            return u != null && (u.startsWith("content://") || u.startsWith("file://"));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private void writePlayingFlag(boolean playing) {
         getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE)
             .edit().putBoolean(BluetoothAutoPlayPlugin.KEY_IS_PLAYING, playing).apply();
@@ -527,6 +558,39 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
             Bitmap bmp = null;
             HttpURLConnection conn = null;
             try {
+                if (fav.startsWith("content://") || fav.startsWith("file://")) {
+                    try (InputStream is = getContentResolver().openInputStream(android.net.Uri.parse(fav))) {
+                        if (is != null) {
+                            Bitmap raw = BitmapFactory.decodeStream(is);
+                            if (raw != null) {
+                                int max = 256;
+                                int w = raw.getWidth(), h = raw.getHeight();
+                                if (w > max || h > max) {
+                                    float s = Math.min((float) max / w, (float) max / h);
+                                    bmp = Bitmap.createScaledBitmap(raw, Math.round(w * s), Math.round(h * s), true);
+                                    if (bmp != raw) raw.recycle();
+                                } else {
+                                    bmp = raw;
+                                }
+                            }
+                        }
+                    }
+                    final Bitmap resultLocal = bmp;
+                    mainHandler.post(() -> {
+                        if (gen != artGen) {
+                            if (resultLocal != null) try { resultLocal.recycle(); } catch (Exception ignored) {}
+                            return;
+                        }
+                        if (resultLocal != null) {
+                            synchronized (artCache) { artCache.put(fav, resultLocal); }
+                        }
+                        stationArt = resultLocal;
+                        applySessionMetadata(currentName, lastTrackTitle);
+                        notifyForeground();
+                        scheduleWidgetUpdate();
+                    });
+                    return;
+                }
                 URL u = new URL(fav);
                 conn = (HttpURLConnection) u.openConnection();
                 conn.setConnectTimeout(4000);
@@ -662,6 +726,10 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
                             notifyUiStatus("buffering", reconnectAttempt);
                         }
                         if (bufferingTicks >= 8) { // ~8 * 3s ≈ 24s
+                            if (isLocalPlayback()) {
+                                bufferingTicks = 0;
+                                return;
+                            }
                             android.util.Log.w("RadioWatch", "silence/buffer timeout → reconnect");
                             notifyUiStatus("reconnecting", reconnectAttempt + 1);
                             bufferingTicks = 0;
@@ -919,6 +987,7 @@ public class RadioWatchService extends Service implements AudioManager.OnAudioFo
     private void scheduleReconnect() {
         SharedPreferences sp = getSharedPreferences(BluetoothAutoPlayPlugin.PREFS, MODE_PRIVATE);
         if (!sp.getBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, false)) return;
+        if (isLocalPlayback()) return;
         if (reconnectHandler == null) {
             reconnectHandler = new android.os.Handler(android.os.Looper.getMainLooper());
         }

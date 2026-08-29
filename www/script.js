@@ -15,6 +15,11 @@ const ERROR_LIMIT = 15;
 let pastSearches = JSON.parse(localStorage.getItem("pastSearches")) || [];
 let deletedStations = JSON.parse(localStorage.getItem("deletedStations")) || [];
 let customTabs = JSON.parse(localStorage.getItem("customTabs")) || [];
+let localFavoriteIds = [];
+try { localFavoriteIds = JSON.parse(localStorage.getItem("localFavoriteIds") || "[]"); if (!Array.isArray(localFavoriteIds)) localFavoriteIds = []; } catch (e) { localFavoriteIds = []; }
+let localTracksCache = [];
+let localTracksLoaded = false;
+
 let isAutoPlayPending = false;
 let lastSuccessfulPlayTime = 0;
 let streamAbortController = null;
@@ -345,6 +350,56 @@ const noMetadataStations = [
 ];
 
 customTabs = Array.isArray(customTabs) ? customTabs.filter(tab => typeof tab === "string" && tab.trim()) : [];
+
+
+function isLocalTab(tab) {
+  return tab === "local" || tab === "localbest";
+}
+function getNativePlugin() {
+  try {
+    return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BluetoothAutoPlay)
+      ? window.Capacitor.Plugins.BluetoothAutoPlay : null;
+  } catch (e) { return null; }
+}
+async function ensureMediaPermission() {
+  const plugin = getNativePlugin();
+  if (!plugin || !plugin.requestMediaPermission) return false;
+  try {
+    const r = await plugin.requestMediaPermission();
+    return !!(r && r.granted);
+  } catch (e) {
+    console.log("media perm", e);
+    return false;
+  }
+}
+async function fetchLocalTracks() {
+  const plugin = getNativePlugin();
+  if (!plugin || !plugin.listLocalTracks) return [];
+  try {
+    const r = await plugin.listLocalTracks();
+    const raw = (r && r.tracks) ? r.tracks : [];
+    // Capacitor may return JSArray-like
+    const list = Array.isArray(raw) ? raw : (typeof raw === "object" ? Object.values(raw) : []);
+    return list.map(function (tr) {
+      return {
+        id: String(tr.id || ""),
+        value: tr.url || "",
+        name: tr.name || "Unknown",
+        genre: tr.artist || "Unknown",
+        country: tr.album || "",
+        favicon: tr.favicon || "",
+        duration: tr.duration || 0,
+        isLocal: true
+      };
+    }).filter(function (s) { return s.value && s.id; });
+  } catch (e) {
+    console.log("listLocalTracks", e);
+    if (e && (e.message === "NO_PERMISSION" || String(e).indexOf("NO_PERMISSION") >= 0)) {
+      return null; // signal no permission
+    }
+    return [];
+  }
+}
 
 document.addEventListener("DOMContentLoaded", () => {
   const audio = document.getElementById("audioPlayer");
@@ -961,7 +1016,7 @@ searchBtn.addEventListener("click", () => {
             localStorage.setItem("deletedStations", JSON.stringify(deletedStations));
           }
           if (settings.currentTab && typeof settings.currentTab === "string") {
-            const validTabs = ["best", "techno", "trance", "ukraine", "pop", "search", ...customTabs];
+            const validTabs = ["best", "local", "localbest", "techno", "trance", "ukraine", "pop", "search", ...customTabs];
             if (validTabs.includes(settings.currentTab)) {
               currentTab = settings.currentTab;
               localStorage.setItem("currentTab", currentTab);
@@ -1386,13 +1441,12 @@ searchBtn.addEventListener("click", () => {
           ? `<img data-src="${item.dataset.favicon}" alt="${station.name} icon" style="width: 32px; height: 32px; object-fit: contain; margin-right: 10px;" onerror="this.outerHTML='🎵 '">` 
           : "🎵 ";
         
-        item.innerHTML = `
-          ${iconHtml}
-          <span class="station-name">${station.name}</span>
-          <div class="buttons-container">
-            <button class="add-btn" aria-label="Додати станцію">ADD</button>
-          </div>`;
-        
+        item.innerHTML =
+          iconHtml +
+          '<span class="station-name">' + station.name + '</span>' +
+          '<div class="buttons-container">' +
+          '<button class="favorite-btn' + (fav ? ' favorited' : '') + '" aria-label="Улюблене">★</button>' +
+          '</div>';
         fragment.appendChild(item);
       });
       
@@ -1491,7 +1545,7 @@ searchBtn.addEventListener("click", () => {
     }
 
     function renderTabs() {
-      const fixedTabs = ["best", "techno", "trance", "ukraine", "pop"];
+      const fixedTabs = ["best", "local", "localbest", "techno", "trance", "ukraine", "pop"];
       const searchTab = "search";
       
       tabsContainer.innerHTML = "";
@@ -1501,7 +1555,7 @@ searchBtn.addEventListener("click", () => {
         const btn = document.createElement("button");
         btn.className = `tab-btn ${currentTab === tab ? "active" : ""}`;
         btn.dataset.tab = tab;
-        btn.textContent = tab === "best" ? "Best" : tab === "ukraine" ? "UA" : tab.charAt(0).toUpperCase() + tab.slice(1);
+        btn.textContent = tab === "best" ? "Best" : tab === "local" ? "Local" : tab === "localbest" ? "L-Best" : tab === "ukraine" ? "UA" : tab.charAt(0).toUpperCase() + tab.slice(1);
         btn.setAttribute("role", "tab");
         btn.setAttribute("aria-selected", currentTab === tab ? "true" : "false");
         btn.setAttribute("aria-label", `${tab} tab`);
@@ -2109,7 +2163,7 @@ searchBtn.addEventListener("click", () => {
         return;
       }
 
-      const validTabs = ["best", "techno", "trance", "ukraine", "pop", "search", ...customTabs];
+      const validTabs = ["best", "local", "localbest", "techno", "trance", "ukraine", "pop", "search", ...customTabs];
       if (!validTabs.includes(tab)) tab = "techno";
       
       document.querySelectorAll(".tab-btn").forEach(btn => {
@@ -2151,6 +2205,16 @@ searchBtn.addEventListener("click", () => {
         maxIndex = (stationLists[tab] && stationLists[tab].length ? stationLists[tab].length : 1) - 1;
       }
       currentIndex = (savedIndex <= maxIndex && savedIndex >= 0) ? savedIndex : 0;
+
+      if (isLocalTab(tab)) {
+        if (searchInput) {
+          searchInput.style.display = "none";
+          searchInput.classList.remove("search-open", "is-expanded");
+        }
+        loadAndShowLocal(tab);
+        renderTabs();
+        return;
+      }
 
       if (tab === "search") {
         if (searchInput) {
@@ -2481,7 +2545,7 @@ searchBtn.addEventListener("click", () => {
           Object.values(stationLists).flat().some(s => s.name === name)
         );
         localStorage.setItem("favoriteStations", JSON.stringify(favoriteStations));
-        const validTabs = [...Object.keys(stationLists), "best", "search", ...customTabs];
+        const validTabs = [...Object.keys(stationLists), "best", "local", "localbest", "search", ...customTabs];
         if (!validTabs.includes(currentTab)) {
           currentTab = validTabs[0] || "techno";
           localStorage.setItem("currentTab", currentTab);
@@ -2599,7 +2663,186 @@ searchBtn.addEventListener("click", () => {
       };
     }
 
+
+    async function loadAndShowLocal(tab) {
+      showLoading();
+      stationList.innerHTML = "<div class='station-item empty'>Завантаження локальної музики…</div>";
+      stationItems = [];
+      const ok = await ensureMediaPermission();
+      if (!ok) {
+        hideLoading();
+        stationList.innerHTML = "<div class='station-item empty'>Немає доступу до музики. Дозвольте доступ у налаштуваннях.</div>";
+        showToast("Потрібен доступ до аудіо", "error");
+        return;
+      }
+      if (!localTracksLoaded || !localTracksCache.length) {
+        const tracks = await fetchLocalTracks();
+        if (tracks === null) {
+          hideLoading();
+          stationList.innerHTML = "<div class='station-item empty'>Немає доступу до музики</div>";
+          return;
+        }
+        localTracksCache = tracks;
+        localTracksLoaded = true;
+      }
+      hideLoading();
+      renderLocalList(tab);
+    }
+
+    function renderLocalList(tab) {
+      let tracks = localTracksCache.slice();
+      if (tab === "localbest") {
+        const set = new Set(localFavoriteIds.map(String));
+        tracks = tracks.filter(function (tr) { return set.has(String(tr.id)); });
+      }
+      if (!tracks.length) {
+        currentIndex = 0;
+        stationItems = [];
+        stationList.innerHTML = tab === "localbest"
+          ? "<div class='station-item empty'>Немає улюблених локальних треків (★ у вкладці Local)</div>"
+          : "<div class='station-item empty'>Локальних треків не знайдено</div>";
+        return;
+      }
+      const savedIndex = parseInt(localStorage.getItem("lastStation_" + tab), 10) || 0;
+      currentIndex = (savedIndex >= 0 && savedIndex < tracks.length) ? savedIndex : 0;
+
+      const fragment = document.createDocumentFragment();
+      tracks.forEach(function (station, index) {
+        const item = document.createElement("div");
+        item.className = "station-item" + (index === currentIndex ? " selected" : "");
+        item.dataset.value = station.value;
+        item.dataset.name = station.name;
+        item.dataset.genre = station.genre;
+        item.dataset.country = station.country;
+        item.dataset.favicon = station.favicon || "";
+        item.dataset.id = station.id;
+        item.dataset.local = "1";
+        item.dataset.index = index;
+        item.setAttribute("role", "listitem");
+        const fav = localFavoriteIds.map(String).indexOf(String(station.id)) >= 0;
+        const iconHtml = "🎵 ";
+        item.innerHTML =
+          iconHtml +
+          '<span class="station-name">' + station.name + '</span>' +
+          '<div class="buttons-container">' +
+          '<button class="favorite-btn' + (fav ? ' favorited' : '') + '" aria-label="Улюблене">★</button>' +
+          '</div>';
+        fragment.appendChild(item);
+      });
+      stationList.innerHTML = "";
+      stationList.appendChild(fragment);
+      stationItems = stationList.querySelectorAll(".station-item");
+      if (stationItems[currentIndex]) {
+        try { stationItems[currentIndex].scrollIntoView({ block: "nearest" }); } catch (e) {}
+      }
+      try { syncLocalQueueToNative(); } catch (e) {}
+      stationList.onclick = function (e) {
+        const item = e.target.closest(".station-item");
+        const favoriteBtn = e.target.closest(".favorite-btn");
+        if (!item || item.classList.contains("empty")) return;
+        if (favoriteBtn) {
+          e.stopPropagation();
+          e.preventDefault();
+          toggleLocalFavorite(item.dataset.id);
+          return;
+        }
+        e.preventDefault();
+        currentIndex = Array.from(stationItems).indexOf(item);
+        playLocalIndex(currentIndex);
+        provideHapticFeedback();
+      };
+    }
+
+    function syncLocalQueueToNative() {
+      try {
+        const items = stationItems || [];
+        const urls = [], names = [], favicons = [], genres = [], countries = [];
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i];
+          if (!it || it.classList.contains("empty")) continue;
+          urls.push(it.dataset.value || "");
+          names.push(it.dataset.name || "");
+          favicons.push(it.dataset.favicon || "");
+          genres.push(it.dataset.genre || "");
+          countries.push(it.dataset.country || "");
+        }
+        let idx = typeof currentIndex === "number" ? currentIndex : 0;
+        if (idx < 0) idx = 0;
+        if (idx >= urls.length) idx = 0;
+        const plugin = getNativeAutoPlay();
+        if (plugin && plugin.saveQueue) {
+          plugin.saveQueue({
+            urls: JSON.stringify(urls),
+            names: JSON.stringify(names),
+            favicons: JSON.stringify(favicons),
+            genres: JSON.stringify(genres),
+            countries: JSON.stringify(countries),
+            index: idx
+          }).catch(function () {});
+        }
+      } catch (e) {}
+    }
+
+    function playLocalIndex(index) {
+      if (!stationItems || index < 0 || index >= stationItems.length) return;
+      const item = stationItems[index];
+      if (!item || item.classList.contains("empty")) return;
+      stationItems.forEach(function (el) { el.classList.remove("selected"); });
+      item.classList.add("selected");
+      currentIndex = index;
+      const url = item.dataset.value || "";
+      const name = item.dataset.name || "";
+      const fav = item.dataset.favicon || "";
+      const artist = item.dataset.genre || "";
+      const album = item.dataset.country || "";
+      lastStationUrl = url;
+      lastStationName = name;
+      try {
+        localStorage.setItem("lastStationUrl", lastStationUrl);
+        localStorage.setItem("lastStationName", lastStationName);
+        localStorage.setItem("lastStation_" + currentTab, index);
+        localStorage.setItem("intendedPlaying", "true");
+        localStorage.setItem("isPlaying", "true");
+      } catch (e) {}
+      intendedPlaying = true;
+      isPlaying = true;
+      try {
+        const nameEl = currentStationInfo.querySelector(".station-name");
+        const genreEl = currentStationInfo.querySelector(".station-genre");
+        const countryEl = currentStationInfo.querySelector(".station-country");
+        const trackEl = document.getElementById("currentTrack");
+        if (nameEl) nameEl.textContent = name;
+        if (genreEl) genreEl.textContent = "виконавець: " + (artist || "-");
+        if (countryEl) countryEl.textContent = "альбом: " + (album || "-");
+        if (trackEl) {
+          trackEl.classList.remove("loading", "is-empty");
+          trackEl.textContent = "🎵 " + name + (artist ? (" — " + artist) : "");
+        }
+      } catch (e) {}
+      syncLocalQueueToNative();
+      nativeSaveStation(url, name, fav, artist, album);
+      nativeSetPlaying(true);
+      nativePlay(url, name, fav, artist, album);
+      try { if (typeof syncPlaybackUi === "function") syncPlaybackUi(true); } catch (e) {}
+    }
+
+    function toggleLocalFavorite(trackId) {
+      if (!trackId) return;
+      const id = String(trackId);
+      const idx = localFavoriteIds.map(String).indexOf(id);
+      if (idx >= 0) {
+        localFavoriteIds.splice(idx, 1);
+        showToast("Видалено з L-Best", "info");
+      } else {
+        localFavoriteIds.unshift(id);
+        showToast("Додано в L-Best", "success");
+      }
+      localStorage.setItem("localFavoriteIds", JSON.stringify(localFavoriteIds));
+      if (isLocalTab(currentTab)) renderLocalList(currentTab);
+    }
+
     function toggleFavorite(stationName) {
+
       if (favoriteStations.includes(stationName)) {
         favoriteStations = favoriteStations.filter(name => name !== stationName);
         showToast(`Видалено з улюблених`, "info");
@@ -2760,7 +3003,8 @@ searchBtn.addEventListener("click", () => {
       if (!stationItems?.length) return;
       currentIndex = currentIndex > 0 ? currentIndex - 1 : stationItems.length - 1;
       if (stationItems[currentIndex].classList.contains("empty")) currentIndex = 0;
-      changeStation(currentIndex);
+      if (isLocalTab(currentTab)) playLocalIndex(currentIndex);
+      else changeStation(currentIndex);
       provideHapticFeedback();
     }
 
@@ -2768,7 +3012,8 @@ searchBtn.addEventListener("click", () => {
       if (!stationItems?.length) return;
       currentIndex = currentIndex < stationItems.length - 1 ? currentIndex + 1 : 0;
       if (stationItems[currentIndex].classList.contains("empty")) currentIndex = 0;
-      changeStation(currentIndex);
+      if (isLocalTab(currentTab)) playLocalIndex(currentIndex);
+      else changeStation(currentIndex);
       provideHapticFeedback();
     }
 
