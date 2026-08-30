@@ -8,6 +8,35 @@ function isLoc(){try{if(window.__lmLocalFlag)return true}catch(e){}
   try{var t=localStorage.getItem("currentTab");return t==="local"||t==="localbest"}catch(e){return!!L}}
 function tf(){try{F=JSON.parse(localStorage.getItem("localFavorites")||"[]")}catch(e){F=[]}if(!Array.isArray(F))F=[]}
 function sf(){localStorage.setItem("localFavorites",JSON.stringify(F));var p=P();if(p&&p.setFavorites)p.setFavorites({ids:JSON.stringify(F)}).catch(function(){})}
+
+function getFavExport(){
+  var byId={};T.forEach(function(x){byId[String(x.id)]=x});
+  return F.map(function(id){
+    var x=byId[String(id)];
+    if(x)return{id:String(x.id),title:x.title||"",artist:x.artist||"",albumId:String(x.albumId||"0")};
+    return{id:String(id),title:"",artist:"",albumId:"0"};
+  });
+}
+function applyFavImport(raw){
+  if(!Array.isArray(raw))return;
+  var ids=[],meta=[];
+  raw.forEach(function(x){
+    if(x==null)return;
+    if(typeof x==="string"||typeof x==="number"){ids.push(String(x));return}
+    if(typeof x==="object"&&x.id!=null){
+      ids.push(String(x.id));
+      meta.push({id:String(x.id),title:x.title||"",artist:x.artist||"",albumId:String(x.albumId||"0")});
+    }
+  });
+  F=ids.slice(0,5000);
+  sf();
+  try{window.__lmFavMeta=meta}catch(e){}
+  try{if(localStorage.getItem("currentTab")==="localbest")ren(true)}catch(e){}
+}
+window.__lmGetFavoritesExport=getFavExport;
+window.__lmApplyFavorites=applyFavImport;
+window.__lmReloadFavorites=function(){tf();try{if(localStorage.getItem("currentTab")==="localbest")ren(true)}catch(e){}};
+
 function setCur(t){cur=t?{uri:t.uri,title:t.title,artist:t.artist,albumId:t.albumId,id:t.id}:null;try{window.__lmCur=cur}catch(e){}}
 function art(albumId){
   var p=P();if(!p||!p.getArt||!albumId)return;
@@ -55,7 +84,7 @@ function load(fav){
 }
 function ren(fav){
   var list=document.getElementById("stationList");if(!list)return;
-  var arr=fav?T.filter(function(t){return F.indexOf(String(t.id))>=0}):T;
+  var arr;if(fav){  var byId={};T.forEach(function(x){byId[String(x.id)]=x});  arr=[];  F.forEach(function(id){var x=byId[String(id)];if(x)arr.push(x)});}else{arr=T;}
   if(!arr.length){list.innerHTML="<div class='station-item empty'>empty</div>";return}
   var f=document.createDocumentFragment();
   arr.forEach(function(t,i){
@@ -106,7 +135,47 @@ function pauseCur(){
     if(typeof syncPlaybackUi==="function")syncPlaybackUi(false)}catch(e){}
 }
 function playCur(){if(cur&&cur.uri){play(cur,T.length?T:[cur],I);return true}return false}
-function skip(next){var p=P();if(!p||!p.skip)return;p.skip({next:!!next}).catch(function(){})}
+function skip(next){var p=P();if(!p||!p.skip)return;p.skip({next:!!next}).then(function(){setTimeout(refreshFromNative,120);setTimeout(refreshFromNative,400)}).catch(function(){})}
+
+function refreshFromNative(){
+  var p=P();if(!p||!p.getQueueState)return;
+  p.getQueueState().then(function(st){
+    if(!st||st.mode&&st.mode!=="local")return;
+    I=st.index|0;
+    var t={uri:st.uri||"",title:st.title||"Local",artist:st.artist||"",albumId:st.albumId||"0",id:""};
+    setCur(t);
+    try{
+      lastStationName=t.title;lastStationUrl=t.uri||lastStationUrl;
+      localStorage.setItem("lastStationName",lastStationName);
+      localStorage.setItem("lastStationUrl",lastStationUrl||"");
+      isPlaying=true;intendedPlaying=true;
+      localStorage.setItem("isPlaying","true");localStorage.setItem("intendedPlaying","true");
+      if(typeof syncPlaybackUi==="function")syncPlaybackUi(true);
+    }catch(e){}
+    var info=document.getElementById("currentStationInfo");
+    if(info){
+      var n=info.querySelector(".station-name");if(n)n.textContent=t.title||"Local";
+      var g=info.querySelector(".station-genre");if(g)g.textContent="артист: "+(t.artist||"—");
+      var c=info.querySelector(".station-country");if(c)c.textContent="локальний трек";
+    }
+    var npTitle=document.getElementById("npTitle");if(npTitle)npTitle.textContent=t.title||"Local";
+    var npSub=document.getElementById("npSub");if(npSub)npSub.textContent=t.artist||"";
+    art(t.albumId);
+    // highlight in list
+    var list=document.getElementById("stationList");
+    if(list){
+      list.querySelectorAll(".station-item").forEach(function(el){
+        var match=false;
+        if(t.uri&&el.dataset.uri===t.uri)match=true;
+        if(!match&&t.title&&el.dataset.title===t.title)match=true;
+        el.classList.toggle("selected",match);
+      });
+      var sel=list.querySelector(".station-item.selected");
+      if(sel&&sel.scrollIntoView)try{sel.scrollIntoView({block:"nearest",behavior:"smooth"})}catch(e){}
+    }
+  }).catch(function(){});
+}
+
 function onCtrl(e,which){
   if(!isLoc())return;
   e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
@@ -145,4 +214,28 @@ function init(){
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",function(){setTimeout(init,300)});
 else setTimeout(init,300);
 setTimeout(init,1200);
+})();
+
+
+/* lm-block-radio: media-next/prev/online must not start radio while local */
+(function(){
+  function loc(){try{return!!window.__lmLocalFlag}catch(e){return false}
+    try{var t=localStorage.getItem("currentTab");return t==="local"||t==="localbest"}catch(e){return false}}
+  function stopRadio(e){
+    if(!loc())return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+  }
+  ["media-next","media-prev","media-next-sync","media-prev-sync"].forEach(function(ev){
+    window.addEventListener(ev,function(e){
+      if(!loc())return;
+      stopRadio(e);
+      try{if(typeof refreshFromNative==="function")refreshFromNative()}catch(err){}
+    },true);
+  });
+  window.addEventListener("online",function(e){
+    if(!loc())return;
+    e.stopImmediatePropagation();
+    // local content:// — не чіпаємо, сервіс і так isLocalMode
+  },true);
 })();

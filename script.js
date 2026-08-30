@@ -773,6 +773,16 @@ searchBtn.addEventListener("click", () => {
         intendedPlaying: localStorage.getItem("intendedPlaying") === "true",
         localFavorites: JSON.parse(localStorage.getItem("localFavorites") || "[]")
       };
+      // Local Best: порядок зірочок + meta (title/artist), без повного Local
+      try {
+        if (typeof window.__lmGetFavoritesExport === "function") {
+          const meta = window.__lmGetFavoritesExport();
+          if (Array.isArray(meta) && meta.length) {
+            settings.localFavorites = meta;
+            settings.localFavoritesMeta = meta;
+          }
+        }
+      } catch (e) {}
       // Порядок станцій по вкладках
       try {
         const order = {};
@@ -961,17 +971,32 @@ searchBtn.addEventListener("click", () => {
             deletedStations = settings.deletedStations.filter(name => typeof name === "string");
             localStorage.setItem("deletedStations", JSON.stringify(deletedStations));
           }
-          if (Array.isArray(settings.localFavorites)) {
-            const ids = settings.localFavorites.map(x => String(x)).filter(Boolean).slice(0, 5000);
-            localStorage.setItem("localFavorites", JSON.stringify(ids));
-            try {
-              if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.LocalMusic && Capacitor.Plugins.LocalMusic.setFavorites) {
-                Capacitor.Plugins.LocalMusic.setFavorites({ ids: JSON.stringify(ids) });
-              }
-            } catch (e) {}
+          {
+            const rawFav = Array.isArray(settings.localFavoritesMeta) && settings.localFavoritesMeta.length
+              ? settings.localFavoritesMeta
+              : (Array.isArray(settings.localFavorites) ? settings.localFavorites : null);
+            if (rawFav) {
+              const ids = rawFav.map(function (x) {
+                if (x == null) return null;
+                if (typeof x === "string" || typeof x === "number") return String(x);
+                if (typeof x === "object" && x.id != null) return String(x.id);
+                return null;
+              }).filter(Boolean).slice(0, 5000);
+              localStorage.setItem("localFavorites", JSON.stringify(ids));
+              try {
+                if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.LocalMusic && Capacitor.Plugins.LocalMusic.setFavorites) {
+                  Capacitor.Plugins.LocalMusic.setFavorites({ ids: JSON.stringify(ids) });
+                }
+              } catch (e) {}
+              try {
+                if (typeof window.__lmApplyFavorites === "function") {
+                  window.__lmApplyFavorites(rawFav);
+                }
+              } catch (e) {}
+            }
           }
           if (settings.currentTab && typeof settings.currentTab === "string") {
-            const validTabs = ["best", "techno", "trance", "ukraine", "pop", "search", ...customTabs];
+            const validTabs = ["best", "techno", "trance", "ukraine", "pop", "search", "local", "localbest", ...customTabs];
             if (validTabs.includes(settings.currentTab)) {
               currentTab = settings.currentTab;
               localStorage.setItem("currentTab", currentTab);
@@ -2121,7 +2146,7 @@ searchBtn.addEventListener("click", () => {
         return;
       }
 
-      const validTabs = ["best", "techno", "trance", "ukraine", "pop", "search", ...customTabs];
+      const validTabs = ["best", "techno", "trance", "ukraine", "pop", "search", "local", "localbest", ...customTabs];
       if (!validTabs.includes(tab)) tab = "techno";
       
       document.querySelectorAll(".tab-btn").forEach(btn => {

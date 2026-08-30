@@ -8,6 +8,35 @@ function isLoc(){try{if(window.__lmLocalFlag)return true}catch(e){}
   try{var t=localStorage.getItem("currentTab");return t==="local"||t==="localbest"}catch(e){return!!L}}
 function tf(){try{F=JSON.parse(localStorage.getItem("localFavorites")||"[]")}catch(e){F=[]}if(!Array.isArray(F))F=[]}
 function sf(){localStorage.setItem("localFavorites",JSON.stringify(F));var p=P();if(p&&p.setFavorites)p.setFavorites({ids:JSON.stringify(F)}).catch(function(){})}
+
+function getFavExport(){
+  var byId={};T.forEach(function(x){byId[String(x.id)]=x});
+  return F.map(function(id){
+    var x=byId[String(id)];
+    if(x)return{id:String(x.id),title:x.title||"",artist:x.artist||"",albumId:String(x.albumId||"0")};
+    return{id:String(id),title:"",artist:"",albumId:"0"};
+  });
+}
+function applyFavImport(raw){
+  if(!Array.isArray(raw))return;
+  var ids=[],meta=[];
+  raw.forEach(function(x){
+    if(x==null)return;
+    if(typeof x==="string"||typeof x==="number"){ids.push(String(x));return}
+    if(typeof x==="object"&&x.id!=null){
+      ids.push(String(x.id));
+      meta.push({id:String(x.id),title:x.title||"",artist:x.artist||"",albumId:String(x.albumId||"0")});
+    }
+  });
+  F=ids.slice(0,5000);
+  sf();
+  try{window.__lmFavMeta=meta}catch(e){}
+  try{if(localStorage.getItem("currentTab")==="localbest")ren(true)}catch(e){}
+}
+window.__lmGetFavoritesExport=getFavExport;
+window.__lmApplyFavorites=applyFavImport;
+window.__lmReloadFavorites=function(){tf();try{if(localStorage.getItem("currentTab")==="localbest")ren(true)}catch(e){}};
+
 function setCur(t){cur=t?{uri:t.uri,title:t.title,artist:t.artist,albumId:t.albumId,id:t.id}:null;try{window.__lmCur=cur}catch(e){}}
 function art(albumId){
   var p=P();if(!p||!p.getArt||!albumId)return;
@@ -55,7 +84,7 @@ function load(fav){
 }
 function ren(fav){
   var list=document.getElementById("stationList");if(!list)return;
-  var arr=fav?T.filter(function(t){return F.indexOf(String(t.id))>=0}):T;
+  var arr;if(fav){  var byId={};T.forEach(function(x){byId[String(x.id)]=x});  arr=[];  F.forEach(function(id){var x=byId[String(id)];if(x)arr.push(x)});}else{arr=T;}
   if(!arr.length){list.innerHTML="<div class='station-item empty'>empty</div>";return}
   var f=document.createDocumentFragment();
   arr.forEach(function(t,i){
