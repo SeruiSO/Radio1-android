@@ -122,7 +122,7 @@
         <input id="renameTabName" type="text" placeholder="Введіть нову назву вкладки" aria-label="Нова назва вкладки" maxlength="10" pattern="[a-z0-9_-]+">
         <div class="modal-tabs">
           <button id="renameTabBtn" class="modal-tab-btn" aria-label="Перейменувати вкладку">Перейменувати</button>
-          <button id="deleteTabBtn" class="modal-tab-btn" aria-label="Видалити вкладку">Видалити</button>
+          <button class="modal-cancel-btn" aria-label="Видалити вкладку">Видалити</button>
           <button class="modal-cancel-btn" aria-label="Скасувати">Скасувати</button>
         </div>
       </div>
@@ -132,14 +132,22 @@
 
   <div id="nowPlayingSheet" class="np-sheet" hidden>
     <div class="np-backdrop" id="npBackdrop"></div>
-    <div class="np-card" role="dialog" aria-label="Now Playing">
-      <button type="button" class="np-close" id="npClose" aria-label="Закрити">✕</button>
+    <div class="np-card" id="npCard" role="dialog" aria-label="Now Playing">
+      <div class="np-handle" aria-hidden="true"></div>
       <div class="np-art" id="npArt">🎵</div>
       <div class="np-name" id="npName">—</div>
       <div class="np-meta" id="npGenre">жанр: —</div>
       <div class="np-meta" id="npCountry">країна: —</div>
       <div class="np-track" id="npTrack">🎵 Трек: невідомо</div>
       <div class="np-status" id="npStatus"></div>
+      <div class="np-seek" id="npSeekWrap" hidden>
+        <input type="range" id="npSeek" min="0" max="1000" value="0" aria-label="Прогрес">
+        <div class="np-time"><span id="npPos">0:00</span><span id="npDur">0:00</span></div>
+      </div>
+      <div class="np-local-opts" id="npLocalOpts" hidden>
+        <button type="button" class="np-opt" id="npShuffle" aria-label="Shuffle">Shuffle</button>
+        <button type="button" class="np-opt" id="npRepeat" aria-label="Repeat">Repeat</button>
+      </div>
       <div class="np-controls">
         <button type="button" class="np-btn" id="npPrev" aria-label="Попередня">⏮</button>
         <button type="button" class="np-btn np-play" id="npPlay" aria-label="Грати">▶</button>
@@ -148,7 +156,6 @@
     </div>
   </div>
 
-  <!-- Service Worker Registration -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
@@ -158,8 +165,6 @@
       });
     }
   </script>
-  
-  <!-- Main Script -->
   <script src="script.js"></script>
 </body>
 </html>
