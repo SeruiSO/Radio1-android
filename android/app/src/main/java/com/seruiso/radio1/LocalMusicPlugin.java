@@ -70,91 +70,88 @@ public class LocalMusicPlugin extends Plugin {
                 return;
             }
         }
-        JSObject r = new JSObject();
-        r.put("granted", true);
-        call.resolve(r);
+        JSObject o = new JSObject();
+        o.put("granted", true);
+        call.resolve(o);
     }
 
     @PermissionCallback
     private void permDone(PluginCall call) {
-        boolean ok;
+        boolean granted;
         if (Build.VERSION.SDK_INT >= 33) {
-            ok = getPermissionState("audio") == PermissionState.GRANTED;
+            granted = getPermissionState("audio") == PermissionState.GRANTED;
         } else {
-            ok = getPermissionState("storage") == PermissionState.GRANTED;
+            granted = getPermissionState("storage") == PermissionState.GRANTED;
         }
-        JSObject r = new JSObject();
-        r.put("granted", ok);
-        call.resolve(r);
+        JSObject o = new JSObject();
+        o.put("granted", granted);
+        call.resolve(o);
     }
 
     @PluginMethod
     public void listTracks(PluginCall call) {
-        if (Build.VERSION.SDK_INT >= 33) {
-            if (getPermissionState("audio") != PermissionState.GRANTED) {
-                call.reject("Permission denied");
-                return;
-            }
-        } else {
-            if (getPermissionState("storage") != PermissionState.GRANTED) {
-                call.reject("Permission denied");
-                return;
-            }
-        }
-
-        String[] projection = {
-            MediaStore.Audio.Media._ID,
-            MediaStore.Audio.Media.TITLE,
-            MediaStore.Audio.Media.ARTIST,
-            MediaStore.Audio.Media.ALBUM,
-            MediaStore.Audio.Media.ALBUM_ID,
-            MediaStore.Audio.Media.DURATION,
-            MediaStore.Audio.Media.DATA
-        };
-        String selection = MediaStore.Audio.Media.IS_MUSIC + " != 0";
-        String sort = MediaStore.Audio.Media.TITLE + " COLLATE NOCASE ASC";
-
-        List<JSObject> tracks = new ArrayList<>();
-        try (Cursor c = getContext().getContentResolver().query(
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                projection, selection, null, sort)) {
-            if (c != null) {
-                int idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID);
-                int titleCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE);
-                int artistCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST);
-                int albumCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM);
-                int albumIdCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID);
-                int durCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION);
-                while (c.moveToNext()) {
-                    long id = c.getLong(idCol);
-                    Uri contentUri = ContentUris.withAppendedId(
-                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id);
-                    JSObject t = new JSObject();
-                    t.put("id", String.valueOf(id));
-                    t.put("uri", contentUri.toString());
-                    t.put("title", c.getString(titleCol) != null ? c.getString(titleCol) : "Unknown");
-                    t.put("artist", c.getString(artistCol) != null ? c.getString(artistCol) : "Unknown");
-                    t.put("album", c.getString(albumCol) != null ? c.getString(albumCol) : "");
-                    t.put("albumId", c.getLong(albumIdCol));
-                    t.put("durationMs", c.getLong(durCol));
-                    tracks.add(t);
+        try {
+            JSArray tracks = new JSArray();
+            Uri collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+            String[] projection = {
+                MediaStore.Audio.Media._ID,
+                MediaStore.Audio.Media.TITLE,
+                MediaStore.Audio.Media.ARTIST,
+                MediaStore.Audio.Media.ALBUM,
+                MediaStore.Audio.Media.ALBUM_ID,
+                MediaStore.Audio.Media.DURATION,
+                MediaStore.Audio.Media.DISPLAY_NAME
+            };
+            String selection = MediaStore.Audio.Media.IS_MUSIC + "!=0";
+            String sort = MediaStore.Audio.Media.TITLE + " COLLATE NOCASE ASC";
+            try (Cursor c = getContext().getContentResolver().query(
+                    collection, projection, selection, null, sort)) {
+                if (c != null) {
+                    int idI = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID);
+                    int titleI = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE);
+                    int artistI = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST);
+                    int albumI = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM);
+                    int albumIdI = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID);
+                    int durI = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION);
+                    while (c.moveToNext()) {
+                        long id = c.getLong(idI);
+                        Uri contentUri = ContentUris.withAppendedId(
+                            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id);
+                        JSObject t = new JSObject();
+                        t.put("id", String.valueOf(id));
+                        t.put("uri", contentUri.toString());
+                        String title = c.getString(titleI);
+                        if (title == null || title.trim().isEmpty()) {
+                            title = c.getString(c.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME));
+                        }
+                        t.put("title", title != null ? title : "Unknown");
+                        String artist = c.getString(artistI);
+                        t.put("artist", artist != null && !artist.equals("<unknown>") ? artist : "Unknown");
+                        String album = c.getString(albumI);
+                        t.put("album", album != null ? album : "");
+                        t.put("albumId", String.valueOf(c.getLong(albumIdI)));
+                        t.put("duration", c.getLong(durI));
+                        tracks.put(t);
+                    }
                 }
             }
+            JSObject out = new JSObject();
+            out.put("tracks", tracks);
+            call.resolve(out);
         } catch (Exception e) {
             call.reject("listTracks failed: " + e.getMessage());
-            return;
         }
-
-        JSObject result = new JSObject();
-        result.put("tracks", new JSArray(tracks));
-        call.resolve(result);
     }
 
     @PluginMethod
     public void getArt(PluginCall call) {
-        long albumId = call.getLong("albumId", 0L);
+        String albumIdStr = call.getString("albumId", "0");
+        long albumId = 0;
+        try { albumId = Long.parseLong(albumIdStr); } catch (Exception ignored) {}
         if (albumId <= 0) {
-            call.resolve(new JSObject().put("base64", ""));
+            JSObject o = new JSObject();
+            o.put("base64", "");
+            call.resolve(o);
             return;
         }
         try {
@@ -162,29 +159,36 @@ public class LocalMusicPlugin extends Plugin {
                 Uri.parse("content://media/external/audio/albumart"), albumId);
             InputStream is = getContext().getContentResolver().openInputStream(artUri);
             if (is == null) {
-                call.resolve(new JSObject().put("base64", ""));
+                JSObject o = new JSObject();
+                o.put("base64", "");
+                call.resolve(o);
                 return;
             }
             Bitmap bmp = BitmapFactory.decodeStream(is);
             is.close();
             if (bmp == null) {
-                call.resolve(new JSObject().put("base64", ""));
+                JSObject o = new JSObject();
+                o.put("base64", "");
+                call.resolve(o);
                 return;
             }
-            // scale down
             int max = 256;
             if (bmp.getWidth() > max || bmp.getHeight() > max) {
                 float scale = Math.min((float) max / bmp.getWidth(), (float) max / bmp.getHeight());
                 bmp = Bitmap.createScaledBitmap(bmp,
-                    Math.round(bmp.getWidth() * scale),
-                    Math.round(bmp.getHeight() * scale), true);
+                    Math.max(1, (int) (bmp.getWidth() * scale)),
+                    Math.max(1, (int) (bmp.getHeight() * scale)), true);
             }
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             bmp.compress(Bitmap.CompressFormat.JPEG, 80, baos);
             String b64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
-            call.resolve(new JSObject().put("base64", b64));
+            JSObject o = new JSObject();
+            o.put("base64", "data:image/jpeg;base64," + b64);
+            call.resolve(o);
         } catch (Exception e) {
-            call.resolve(new JSObject().put("base64", ""));
+            JSObject o = new JSObject();
+            o.put("base64", "");
+            call.resolve(o);
         }
     }
 
@@ -192,7 +196,7 @@ public class LocalMusicPlugin extends Plugin {
     public void setMode(PluginCall call) {
         String mode = call.getString("mode", "radio");
         if (!"local".equals(mode)) mode = "radio";
-        prefs().edit().putString(KEY_MODE, mode).apply();
+        prefs().edit().putString(KEY_MODE, mode).commit();
         call.resolve();
     }
 
@@ -205,49 +209,47 @@ public class LocalMusicPlugin extends Plugin {
 
     @PluginMethod
     public void saveLocalQueue(PluginCall call) {
-        JSArray uris = call.getArray("uris");
-        JSArray titles = call.getArray("titles");
-        JSArray artists = call.getArray("artists");
-        JSArray albumIds = call.getArray("albumIds");
+        String uris = call.getString("uris", "[]");
+        String titles = call.getString("titles", "[]");
+        String artists = call.getString("artists", "[]");
+        String albumIds = call.getString("albumIds", "[]");
         int index = call.getInt("index", 0);
-        if (uris == null) {
-            call.reject("uris required");
-            return;
-        }
-        try {
-            SharedPreferences.Editor ed = prefs().edit();
-            ed.putString(KEY_LOCAL_URIS, uris.toString());
-            ed.putString(KEY_LOCAL_TITLES, titles != null ? titles.toString() : "[]");
-            ed.putString(KEY_LOCAL_ARTISTS, artists != null ? artists.toString() : "[]");
-            ed.putString(KEY_LOCAL_ALBUM_IDS, albumIds != null ? albumIds.toString() : "[]");
-            ed.putInt(KEY_LOCAL_INDEX, index);
-            ed.putString(KEY_MODE, "local");
-            ed.apply();
-            call.resolve();
-        } catch (Exception e) {
-            call.reject("saveLocalQueue: " + e.getMessage());
-        }
+        prefs().edit()
+            .putString(KEY_LOCAL_URIS, uris)
+            .putString(KEY_LOCAL_TITLES, titles)
+            .putString(KEY_LOCAL_ARTISTS, artists)
+            .putString(KEY_LOCAL_ALBUM_IDS, albumIds)
+            .putInt(KEY_LOCAL_INDEX, index)
+            .putString(KEY_MODE, "local")
+            .commit();
+        call.resolve();
     }
 
     @PluginMethod
     public void playTrack(PluginCall call) {
-        String uri = call.getString("uri");
-        String title = call.getString("title", "");
+        String uri = call.getString("uri", "");
+        String title = call.getString("title", "Local");
         String artist = call.getString("artist", "");
-        long albumId = call.getLong("albumId", 0L);
+        String albumId = call.getString("albumId", "0");
         if (uri == null || uri.isEmpty()) {
             call.reject("uri required");
             return;
         }
-        // Ensure mode local
-        prefs().edit().putString(KEY_MODE, "local").apply();
+        SharedPreferences.Editor ed = prefs().edit()
+            .putString(KEY_MODE, "local")
+            .putBoolean(BluetoothAutoPlayPlugin.KEY_PLAY, true)
+            .putString(BluetoothAutoPlayPlugin.KEY_URL, uri)
+            .putString(BluetoothAutoPlayPlugin.KEY_NAME, title != null ? title : "Local")
+            .putString(BluetoothAutoPlayPlugin.KEY_TRACK, artist != null ? artist : "")
+            .putString(BluetoothAutoPlayPlugin.KEY_GENRE, artist != null ? artist : "")
+            .putString(BluetoothAutoPlayPlugin.KEY_COUNTRY, "")
+            .putString(BluetoothAutoPlayPlugin.KEY_FAVICON, albumId != null ? albumId : "0");
+        ed.commit();
 
         Intent svc = new Intent(getContext(), RadioWatchService.class);
-        svc.setAction(RadioWatchService.ACTION_PLAY);
+        svc.setAction(RadioWatchService.ACTION_PLAY_URL);
         svc.putExtra(RadioWatchService.EXTRA_URL, uri);
-        svc.putExtra(RadioWatchService.EXTRA_TITLE, title);
-        svc.putExtra(RadioWatchService.EXTRA_ARTIST, artist);
-        svc.putExtra(RadioWatchService.EXTRA_ALBUM_ID, albumId);
+        svc.putExtra(RadioWatchService.EXTRA_NAME, title);
         if (Build.VERSION.SDK_INT >= 26) {
             getContext().startForegroundService(svc);
         } else {
@@ -258,7 +260,11 @@ public class LocalMusicPlugin extends Plugin {
 
     @PluginMethod
     public void seekTo(PluginCall call) {
-        long pos = call.getLong("positionMs", 0L);
+        long pos = 0;
+        try {
+            Double d = call.getDouble("positionMs");
+            if (d != null) pos = d.longValue();
+        } catch (Exception ignored) {}
         Intent svc = new Intent(getContext(), RadioWatchService.class);
         svc.setAction(RadioWatchService.ACTION_SEEK);
         svc.putExtra(RadioWatchService.EXTRA_POSITION_MS, pos);
@@ -312,6 +318,7 @@ public class LocalMusicPlugin extends Plugin {
         o.put("ids", prefs().getString(KEY_LOCAL_FAVS, "[]"));
         call.resolve(o);
     }
+
 
     @PluginMethod
     public void skip(PluginCall call) {
