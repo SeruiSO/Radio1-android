@@ -320,6 +320,20 @@ public class LocalMusicPlugin extends Plugin {
     }
 
 
+
+    @PluginMethod
+    public void getQueueState(PluginCall call) {
+        android.content.SharedPreferences p = prefs();
+        JSObject o = new JSObject();
+        o.put("index", p.getInt(KEY_LOCAL_INDEX, 0));
+        o.put("title", p.getString(BluetoothAutoPlayPlugin.KEY_NAME, ""));
+        o.put("artist", p.getString(BluetoothAutoPlayPlugin.KEY_TRACK, ""));
+        o.put("uri", p.getString(BluetoothAutoPlayPlugin.KEY_URL, ""));
+        o.put("albumId", p.getString(BluetoothAutoPlayPlugin.KEY_FAVICON, "0"));
+        o.put("mode", p.getString(KEY_MODE, "radio"));
+        call.resolve(o);
+    }
+
     @PluginMethod
     public void skip(PluginCall call) {
         boolean next = Boolean.TRUE.equals(call.getBoolean("next", true));

@@ -770,7 +770,8 @@ searchBtn.addEventListener("click", () => {
         currentTab: localStorage.getItem("currentTab") || "techno",
         lastStationUrl: localStorage.getItem("lastStationUrl") || "",
         lastStationName: localStorage.getItem("lastStationName") || "",
-        intendedPlaying: localStorage.getItem("intendedPlaying") === "true"
+        intendedPlaying: localStorage.getItem("intendedPlaying") === "true",
+        localFavorites: JSON.parse(localStorage.getItem("localFavorites") || "[]")
       };
       // Порядок станцій по вкладках
       try {
@@ -959,6 +960,15 @@ searchBtn.addEventListener("click", () => {
           if (Array.isArray(settings.deletedStations)) {
             deletedStations = settings.deletedStations.filter(name => typeof name === "string");
             localStorage.setItem("deletedStations", JSON.stringify(deletedStations));
+          }
+          if (Array.isArray(settings.localFavorites)) {
+            const ids = settings.localFavorites.map(x => String(x)).filter(Boolean).slice(0, 5000);
+            localStorage.setItem("localFavorites", JSON.stringify(ids));
+            try {
+              if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.LocalMusic && Capacitor.Plugins.LocalMusic.setFavorites) {
+                Capacitor.Plugins.LocalMusic.setFavorites({ ids: JSON.stringify(ids) });
+              }
+            } catch (e) {}
           }
           if (settings.currentTab && typeof settings.currentTab === "string") {
             const validTabs = ["best", "techno", "trance", "ukraine", "pop", "search", ...customTabs];
