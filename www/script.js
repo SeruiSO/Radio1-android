@@ -1574,20 +1574,58 @@ searchBtn.addEventListener("click", () => {
       tabsContainer.appendChild(addBtn);
 
       tabsContainer.querySelectorAll(".tab-btn").forEach(btn => {
-        btn.addEventListener("click", () => {
+        let suppressClick = false;
+        let longPressTimer = null;
+        btn.addEventListener("click", (e) => {
+          if (suppressClick) {
+            e.preventDefault();
+            e.stopPropagation();
+            suppressClick = false;
+            return;
+          }
           switchTab(btn.dataset.tab);
           provideHapticFeedback();
         });
         if (customTabs.includes(btn.dataset.tab)) {
-          let longPressTimer;
-          btn.addEventListener("pointerdown", () => {
+          const clearLp = () => {
+            if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+          };
+          btn.addEventListener("pointerdown", (e) => {
+            if (e.button != null && e.button !== 0) return;
+            clearLp();
+            const startX = e.clientX, startY = e.clientY;
             longPressTimer = setTimeout(() => {
-              showEditTabModal(btn.dataset.tab);
-              provideHapticFeedback([100]);
-            }, 500);
+              longPressTimer = null;
+              suppressClick = true;
+              provideHapticFeedback();
+              try {
+                showEditTabModal(btn.dataset.tab);
+                setTimeout(function () {
+                  var ov = document.querySelector(".edit-tab-modal");
+                  if (!ov || (ov.style.display !== "block" && ov.style.display !== "flex")) {
+                    try { showToast("Меню вкладки не відкрилось", "error"); } catch (e) {}
+                  }
+                }, 100);
+              } catch (err) {
+                console.error(err);
+                try { showToast("Помилка long-press вкладки", "error"); } catch (e) {}
+              }
+            }, 550);
+            const onMove = (ev) => {
+              const dx = ev.clientX - startX, dy = ev.clientY - startY;
+              if (Math.sqrt(dx * dx + dy * dy) > 14) clearLp();
+            };
+            const onUp = () => {
+              clearLp();
+              document.removeEventListener("pointermove", onMove, true);
+              document.removeEventListener("pointerup", onUp, true);
+              document.removeEventListener("pointercancel", onUp, true);
+            };
+            document.addEventListener("pointermove", onMove, { passive: true, capture: true });
+            document.addEventListener("pointerup", onUp, { passive: true, capture: true });
+            document.addEventListener("pointercancel", onUp, { passive: true, capture: true });
           });
-          btn.addEventListener("pointerup", () => clearTimeout(longPressTimer));
-          btn.addEventListener("pointerleave", () => clearTimeout(longPressTimer));
+          btn.addEventListener("contextmenu", (e) => { e.preventDefault(); });
         }
       });
 
@@ -1653,61 +1691,73 @@ searchBtn.addEventListener("click", () => {
       input.addEventListener("keypress", keypressHandler);
     }
 
+
     function showEditTabModal(tab) {
-      const overlay = document.querySelector(".edit-tab-modal");
-      const modal = overlay.querySelector(".modal");
-      const input = document.getElementById("renameTabName");
-      const renameBtn = document.getElementById("renameTabBtn");
-      const deleteBtn = document.getElementById("deleteTabBtn");
-      const cancelBtn = modal.querySelector(".modal-cancel-btn");
-
-      overlay.style.display = "block";
-      input.value = tab;
-      input.focus();
-
-      const closeModal = () => {
-        overlay.style.display = "none";
-        renameBtn.removeEventListener("click", renameTabHandler);
-        deleteBtn.removeEventListener("click", deleteTabHandler);
-        cancelBtn.removeEventListener("click", closeModal);
-        overlay.removeEventListener("click", closeModal);
-        input.removeEventListener("keypress", keypressHandler);
-      };
-
-      const renameTabHandler = () => {
-        const newName = input.value.trim().toLowerCase();
-        if (!newName) {
-          showToast("Введіть нову назву вкладки!", "error");
+      try {
+        const overlay = document.querySelector(".edit-tab-modal");
+        if (!overlay) {
+          showToast("Немає вікна редагування вкладки", "error");
           return;
         }
-        if (["best", "techno", "trance", "ukraine", "pop", "search"].includes(newName) || customTabs.includes(newName)) {
-          showToast("Така назва вкладки вже існує!", "error");
+        const modal = overlay.querySelector(".modal");
+        const input = document.getElementById("renameTabName");
+        const renameBtn = document.getElementById("renameTabBtn");
+        const deleteBtn = document.getElementById("deleteTabBtn");
+        const cancelBtn = modal ? modal.querySelector(".modal-cancel-btn") : null;
+        if (!modal || !input || !renameBtn || !deleteBtn || !cancelBtn) {
+          showToast("Елементи меню вкладки не знайдені", "error");
           return;
         }
-        if (newName.length > 10 || !/^[a-z0-9_-]+$/.test(newName)) {
-          showToast("Назва вкладки не може перевищувати 10 символів і має містити лише латинські літери, цифри, дефіс або підкреслення.", "error");
-          return;
-        }
-        const index = customTabs.indexOf(tab);
-        customTabs[index] = newName;
-        stationLists[newName] = stationLists[tab] || [];
-        userAddedStations[newName] = userAddedStations[tab] || [];
-        delete stationLists[tab];
-        delete userAddedStations[tab];
-        localStorage.setItem("customTabs", JSON.stringify(customTabs));
-        localStorage.setItem("stationLists", JSON.stringify(stationLists));
-        localStorage.setItem("userAddedStations", JSON.stringify(userAddedStations));
-        if (currentTab === tab) switchTab(newName);
-        renderTabs();
-        closeModal();
-        showToast(`Вкладку перейменовано на "${newName}"`, "success");
-      };
 
-      const deleteTabHandler = () => {
-        if (confirm(`Ви впевнені, що хочете видалити вкладку "${tab.toUpperCase()}"?`)) {
+        // скинути старі обробники
+        renameBtn.onclick = null;
+        deleteBtn.onclick = null;
+        cancelBtn.onclick = null;
+        overlay.onclick = null;
+        input.onkeypress = null;
+
+        input.value = tab || "";
+        try { input.blur(); } catch (e) {}
+        deleteBtn.dataset.confirm = "";
+        deleteBtn.textContent = "Видалити";
+        deleteBtn.style.background = "";
+        deleteBtn.style.color = "";
+
+        // показати модалку (кілька способів — WebView інколи ігнорує один)
+        overlay.hidden = false;
+        overlay.style.cssText = (overlay.style.cssText || "").replace(/display\s*:\s*none/gi, "");
+        overlay.style.display = "block";
+        overlay.style.visibility = "visible";
+        overlay.style.opacity = "1";
+        overlay.style.pointerEvents = "auto";
+        overlay.style.zIndex = "5000";
+        if (modal) {
+          modal.style.zIndex = "5001";
+          modal.style.pointerEvents = "auto";
+        }
+
+        const closeModal = (e) => {
+          if (e) {
+            try { e.preventDefault(); e.stopPropagation(); } catch (err) {}
+          }
+          try { input.blur(); } catch (err) {}
+          overlay.style.display = "none";
+          overlay.hidden = true;
+          renameBtn.onclick = null;
+          deleteBtn.onclick = null;
+          cancelBtn.onclick = null;
+          overlay.onclick = null;
+          input.onkeypress = null;
+          deleteBtn.dataset.confirm = "";
+          deleteBtn.textContent = "Видалити";
+          deleteBtn.style.background = "";
+          deleteBtn.style.color = "";
+        };
+
+        const doDelete = () => {
           customTabs = customTabs.filter(t => t !== tab);
-          delete stationLists[tab];
-          delete userAddedStations[tab];
+          try { delete stationLists[tab]; } catch (e) {}
+          try { delete userAddedStations[tab]; } catch (e) {}
           localStorage.setItem("customTabs", JSON.stringify(customTabs));
           localStorage.setItem("stationLists", JSON.stringify(stationLists));
           localStorage.setItem("userAddedStations", JSON.stringify(userAddedStations));
@@ -1717,20 +1767,92 @@ searchBtn.addEventListener("click", () => {
           }
           renderTabs();
           closeModal();
-          showToast(`Вкладку "${tab}" видалено`, "success");
-        }
-      };
+          showToast('Вкладку "' + tab + '" видалено', "success");
+        };
 
-      const keypressHandler = (e) => {
-        if (e.key === "Enter") renameBtn.click();
-      };
+        renameBtn.onclick = function (e) {
+          if (e) { e.preventDefault(); e.stopPropagation(); }
+          const newName = (input.value || "").trim().toLowerCase();
+          if (!newName) {
+            showToast("Введіть нову назву вкладки!", "error");
+            return;
+          }
+          if (newName === tab) { closeModal(); return; }
+          const reserved = ["best", "techno", "trance", "ukraine", "pop", "search", "local", "localbest"];
+          if (reserved.includes(newName) || customTabs.includes(newName)) {
+            showToast("Така назва вкладки вже існує!", "error");
+            return;
+          }
+          if (newName.length > 10 || !/^[a-z0-9_-]+$/.test(newName)) {
+            showToast("Назва: a-z 0-9 _ - , до 10 символів", "error");
+            return;
+          }
+          const index = customTabs.indexOf(tab);
+          if (index < 0) { closeModal(); return; }
+          customTabs[index] = newName;
+          stationLists[newName] = stationLists[tab] || [];
+          userAddedStations[newName] = userAddedStations[tab] || [];
+          delete stationLists[tab];
+          delete userAddedStations[tab];
+          localStorage.setItem("customTabs", JSON.stringify(customTabs));
+          localStorage.setItem("stationLists", JSON.stringify(stationLists));
+          localStorage.setItem("userAddedStations", JSON.stringify(userAddedStations));
+          if (currentTab === tab) switchTab(newName);
+          renderTabs();
+          closeModal();
+          showToast('Вкладку перейменовано на "' + newName + '"', "success");
+        };
 
-      renameBtn.addEventListener("click", renameTabHandler);
-      deleteBtn.addEventListener("click", deleteTabHandler);
-      cancelBtn.addEventListener("click", closeModal);
-      overlay.addEventListener("click", closeModal);
-      input.addEventListener("keypress", keypressHandler);
+        deleteBtn.onclick = function (e) {
+          if (e) { e.preventDefault(); e.stopPropagation(); }
+          try { input.blur(); } catch (err) {}
+          if (deleteBtn.dataset.confirm !== "1") {
+            deleteBtn.dataset.confirm = "1";
+            deleteBtn.textContent = "Точно видалити?";
+            deleteBtn.style.background = "#c62828";
+            deleteBtn.style.color = "#fff";
+            showToast("Ще раз натисніть «Точно видалити?»", "info", 2500);
+            setTimeout(function () {
+              if (deleteBtn.dataset.confirm === "1") {
+                deleteBtn.dataset.confirm = "";
+                deleteBtn.textContent = "Видалити";
+                deleteBtn.style.background = "";
+                deleteBtn.style.color = "";
+              }
+            }, 4000);
+            return;
+          }
+          deleteBtn.dataset.confirm = "";
+          deleteBtn.textContent = "Видалити";
+          deleteBtn.style.background = "";
+          deleteBtn.style.color = "";
+          doDelete();
+        };
+
+        cancelBtn.onclick = function (e) { closeModal(e); };
+
+        overlay.onclick = function (e) {
+          if (e.target === overlay) closeModal(e);
+        };
+
+        input.onkeypress = function (e) {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            renameBtn.onclick(e);
+          }
+        };
+
+        // на всяк випадок — ще раз показати після layout
+        requestAnimationFrame(function () {
+          overlay.style.display = "block";
+          overlay.style.visibility = "visible";
+        });
+      } catch (err) {
+        console.error("showEditTabModal", err);
+        try { showToast("Помилка меню вкладки: " + (err && err.message ? err.message : err), "error"); } catch (e) {}
+      }
     }
+
 
     const themes = {
       "shadow-pulse": {

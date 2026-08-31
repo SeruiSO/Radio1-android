@@ -173,8 +173,16 @@ function refreshFromNative(){
       var sel=list.querySelector(".station-item.selected");
       if(sel&&sel.scrollIntoView)try{sel.scrollIntoView({block:"nearest",behavior:"smooth"})}catch(e){}
     }
+    // empty album art fallback
+    if(!t.albumId||String(t.albumId)==="0"){
+      var icon0=document.getElementById("stationIconBtn"),np0=document.getElementById("npArt");
+      if(icon0){icon0.style.backgroundImage="none";icon0.innerHTML="🎵"}
+      if(np0){np0.style.backgroundImage="none";np0.textContent="🎵"}
+    }
   }).catch(function(){});
 }
+window.__lmRefreshFromNative=refreshFromNative;
+window.refreshFromNative=refreshFromNative;
 
 function onCtrl(e,which){
   if(!isLoc())return;
@@ -205,8 +213,22 @@ function bindTabsWatch(){
       var p=P();if(p&&p.setMode)p.setMode({mode:"radio"}).catch(function(){})}
   },true);
 }
+
+function bindResumeSync(){
+  if(window.__lmResumeBound)return;window.__lmResumeBound=1;
+  function tryRefresh(){
+    if(!isLoc())return;
+    setTimeout(refreshFromNative,80);
+    setTimeout(refreshFromNative,350);
+  }
+  document.addEventListener("visibilitychange",function(){if(!document.hidden)tryRefresh()});
+  window.addEventListener("pageshow",tryRefresh);
+  window.addEventListener("focus",tryRefresh);
+  document.addEventListener("resume",tryRefresh);
+}
+
 function init(){
-  if(!nat())return;tf();tabs();bindCtrl();bindTabsWatch();
+  if(!nat())return;tf();tabs();bindCtrl();bindTabsWatch();bindResumeSync();
   window.__lmGo=go;window.__lmTabs=tabs;
   var t=localStorage.getItem("currentTab");
   if(t==="local"||t==="localbest")setTimeout(function(){go(t)},400);
@@ -230,7 +252,10 @@ setTimeout(init,1200);
     window.addEventListener(ev,function(e){
       if(!loc())return;
       stopRadio(e);
-      try{if(typeof refreshFromNative==="function")refreshFromNative()}catch(err){}
+      try{
+        var rf=window.__lmRefreshFromNative||window.refreshFromNative;
+        if(typeof rf==="function"){rf();setTimeout(rf,200);setTimeout(rf,500)}
+      }catch(err){}
     },true);
   });
   window.addEventListener("online",function(e){
