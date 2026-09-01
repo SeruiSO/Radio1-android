@@ -49,18 +49,43 @@ function art(albumId){
 }
 function tabs(){
   var el=document.getElementById("tabs");if(!el)return;
-  if(!el.querySelector('[data-tab="local"]')){
-    var s=el.querySelector('[data-tab="search"]');
-    function mk(id,lab){var b=document.createElement("button");b.className="tab-btn";b.dataset.tab=id;b.textContent=lab;b.setAttribute("role","tab");
-      b.addEventListener("click",function(e){e.preventDefault();e.stopPropagation();go(id)},true);return b}
-    var a=mk("local","Local"),b=mk("localbest","Lokal Best");
-    if(s){el.insertBefore(a,s);el.insertBefore(b,s)}else{el.appendChild(a);el.appendChild(b)}
-  } else {
-    el.querySelectorAll('[data-tab="local"],[data-tab="localbest"]').forEach(function(btn){
-      if(btn._lmW)return;btn._lmW=1;
-      btn.addEventListener("click",function(e){e.preventDefault();e.stopPropagation();go(btn.dataset.tab)},true);
-    });
+  function mk(id,lab){
+    var b=document.createElement("button");
+    b.className="tab-btn";b.dataset.tab=id;b.textContent=lab;b.setAttribute("role","tab");
+    b.addEventListener("click",function(e){e.preventDefault();e.stopPropagation();go(id)},true);
+    return b;
   }
+  function ensure(id,lab,afterSel,beforeSel){
+    var existing=el.querySelector('[data-tab="'+id+'"]');
+    if(existing){
+      if(!existing._lmW){
+        existing._lmW=1;
+        existing.addEventListener("click",function(e){e.preventDefault();e.stopPropagation();go(id)},true);
+      }
+      try{existing.textContent=lab;}catch(e){}
+      try{
+        var after=afterSel?el.querySelector(afterSel):null;
+        var before=beforeSel?el.querySelector(beforeSel):null;
+        if(after&&after.parentNode===el&&after.nextSibling!==existing){
+          el.insertBefore(existing,after.nextSibling);
+        }else if(before&&!after){
+          el.insertBefore(existing,before);
+        }
+      }catch(e){}
+      return existing;
+    }
+    var b=mk(id,lab);
+    var after=afterSel?el.querySelector(afterSel):null;
+    var before=beforeSel?el.querySelector(beforeSel):null;
+    if(after&&after.parentNode===el){
+      if(after.nextSibling)el.insertBefore(b,after.nextSibling);
+      else el.appendChild(b);
+    }else if(before){el.insertBefore(b,before);}
+    else{el.appendChild(b);}
+    return b;
+  }
+  ensure("localbest","Lokal Best",'[data-tab="best"]','[data-tab="techno"]');
+  ensure("local","Local",null,'[data-tab="search"]');
 }
 function go(tab){
   flag(true);

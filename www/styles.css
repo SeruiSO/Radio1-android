@@ -1108,3 +1108,5 @@ button.station-icon:hover {
   font-size: 18px; padding: 4px 8px; cursor: pointer;
 }
 .station-item .local-star.on { color: #ffd54f; }
+
+.search-load-more{width:100%;border:1px dashed var(--accent,#00E676);background:transparent;color:var(--text,#fff);padding:12px;margin:8px 0;border-radius:10px;}

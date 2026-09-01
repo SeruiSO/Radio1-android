@@ -90,7 +90,7 @@ window.addEventListener("native-status", function (ev) {
     if (st === "connecting") setPlaybackStatus("Підключення…", true);
     else if (st === "buffering") setPlaybackStatus("Буферизація…", true);
     else if (st === "reconnecting") setPlaybackStatus("Перепідключення" + (attempt ? (" " + attempt) : "") + "…", true);
-    else if (st === "offline") setPlaybackStatus("Немає мережі", true);
+    else if (st === "offline") setPlaybackStatus("Очікуємо з'єднання...", true);
     else if (st === "playing") setPlaybackStatus("", false);
     else setPlaybackStatus(st || "", !!st);
   } catch (e) {}
@@ -343,6 +343,47 @@ const noMetadataStations = [
   'cast.brg.ua',
   'icecast.luxnet.ua'
 ];
+
+
+/* A-E radio-browser helpers */
+var RB_HOSTS=["de1.api.radio-browser.info","nl1.api.radio-browser.info","at1.api.radio-browser.info","fr1.api.radio-browser.info"];
+var _rbHostIdx=0;
+var _searchAllResults=[];
+var _searchShown=0;
+var SEARCH_PAGE=100;
+function rbBase(){return "https://"+RB_HOSTS[_rbHostIdx%RB_HOSTS.length]}
+function rbRotate(){_rbHostIdx=(_rbHostIdx+1)%RB_HOSTS.length}
+function rbTimeoutSignal(ms){
+  try{return AbortSignal.timeout(ms||10000)}catch(e){
+    var c=new AbortController();
+    setTimeout(function(){try{c.abort()}catch(x){}},ms||10000);
+    return c.signal;
+  }
+}
+async function rbFetchJson(pathAndQuery,signal){
+  var lastErr=null;
+  for(var i=0;i<RB_HOSTS.length;i++){
+    var url=rbBase()+pathAndQuery;
+    try{
+      var response=await fetch(url,{
+        signal:signal||rbTimeoutSignal(10000),
+        headers:{"User-Agent":"RadioMusicSO/1.1.32","Accept":"application/json"}
+      });
+      if(!response.ok)throw new Error("HTTP "+response.status);
+      return await response.json();
+    }catch(e){
+      lastErr=e;
+      if(e&&e.name==="AbortError")throw e;
+      rbRotate();
+    }
+  }
+  throw lastErr||new Error("radio-browser unavailable");
+}
+function rbStreamUrl(st){
+  if(!st)return "";
+  var u=(st.url_resolved||st.url||"").toString().trim();
+  return u;
+}
 
 customTabs = Array.isArray(customTabs) ? customTabs.filter(tab => typeof tab === "string" && tab.trim()) : [];
 
@@ -1334,60 +1375,33 @@ searchBtn.addEventListener("click", () => {
     async function searchStations(query, country, genre) {
       showLoading();
       stationList.innerHTML = "<div class='station-item empty'>Пошук...</div>";
-      
+      _searchAllResults = [];
+      _searchShown = 0;
       try {
         abortController.abort();
         abortController = new AbortController();
-        
         const params = new URLSearchParams();
         if (query) params.append("name", query);
         if (country) params.append("country", country);
         if (genre) params.append("tag", genre);
-        
         params.append("order", "clickcount");
         params.append("reverse", "true");
         params.append("limit", "500");
         params.append("hidebroken", "true");
-        
-        const url = `https://de1.api.radio-browser.info/json/stations/search?${params.toString()}`;
-        console.log("Search URL:", url);
-        
-        const response = await fetch(url, {
-          signal: abortController.signal,
-          headers: { 'User-Agent': 'RadioMusicSO/1.0' }
+        let stations = await rbFetchJson("/json/stations/search?" + params.toString(), abortController.signal);
+        if (!Array.isArray(stations)) stations = [];
+        stations = stations.filter(function (station) {
+          var url = rbStreamUrl(station);
+          return url && (url.indexOf("http://") === 0 || url.indexOf("https://") === 0);
         });
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        
-        let stations = await response.json();
-        
-        // М'якша фільтрація - перевіряємо наявність URL
-        stations = stations.filter(station => {
-          const url = station.url || station.url_resolved;
-          return url && (url.startsWith('http://') || url.startsWith('https://'));
-        });
-        
-        // Конвертуємо HTTP в HTTPS для безпеки
-        stations = stations.map(station => {
-          if (station.url && station.url.startsWith('http://')) {
-            station.url = station.url.replace('http://', 'https://');
-          }
-          if (station.url_resolved && station.url_resolved.startsWith('http://')) {
-            station.url_resolved = station.url_resolved.replace('http://', 'https://');
-          }
-          return station;
-        });
-        
-        console.log(`Знайдено ${stations.length} станцій`);
-        renderSearchResults(stations);
+        _searchAllResults = stations;
+        _searchShown = 0;
+        renderSearchResultsPage(true);
         collapseSearchPanel();
         updateSearchToggleLabel();
-        showToast(`Знайдено ${stations.length} станцій`, "success");
-        
+        showToast("Знайдено " + stations.length + " станцій", "success");
       } catch (error) {
-        if (error.name !== 'AbortError') {
+        if (error.name !== "AbortError") {
           console.error("Error searching stations:", error);
           stationList.innerHTML = "<div class='station-item empty'>Не вдалося знайти станції</div>";
           showToast("Помилка пошуку", "error");
@@ -1397,68 +1411,89 @@ searchBtn.addEventListener("click", () => {
       }
     }
 
-    function renderSearchResults(stations) {
-      if (!stations.length) {
+    function renderSearchResultsPage(reset) {
+      if (!_searchAllResults || !_searchAllResults.length) {
         stationList.innerHTML = "<div class='station-item empty'>Нічого не знайдено</div>";
         stationItems = [];
         return;
       }
-      
-      const fragment = document.createDocumentFragment();
-      stations.forEach((station, index) => {
-        const item = document.createElement("div");
-        item.className = `station-item ${index === currentIndex ? "selected" : ""}`;
-        const stationUrl = station.url || station.url_resolved;
+      if (reset) {
+        _searchShown = 0;
+        stationList.innerHTML = "";
+      }
+      var oldMore = stationList.querySelector(".search-load-more");
+      if (oldMore) oldMore.remove();
+      var start = _searchShown;
+      var end = Math.min(_searchShown + SEARCH_PAGE, _searchAllResults.length);
+      var slice = _searchAllResults.slice(start, end);
+      var fragment = document.createDocumentFragment();
+      slice.forEach(function (station, i) {
+        var index = start + i;
+        var item = document.createElement("div");
+        item.className = "station-item" + (index === currentIndex ? " selected" : "");
+        var stationUrl = rbStreamUrl(station);
         item.dataset.value = stationUrl;
         item.dataset.name = station.name || "Unknown";
         item.dataset.genre = shortenGenre(station.tags || "Unknown");
         item.dataset.country = station.country || "Unknown";
-        item.dataset.favicon = station.favicon && isValidUrl(station.favicon) ? station.favicon.replace('http://', 'https://') : "";
-        item.dataset.index = index;
-        item.style.setProperty('--item-index', index);
-        
-        const iconHtml = item.dataset.favicon 
-          ? `<img data-src="${item.dataset.favicon}" alt="${station.name} icon" style="width: 32px; height: 32px; object-fit: contain; margin-right: 10px;" onerror="this.outerHTML='🎵 '">` 
+        item.dataset.favicon = station.favicon && isValidUrl(station.favicon) ? station.favicon : "";
+        item.dataset.index = String(index);
+        var iconHtml = item.dataset.favicon
+          ? '<img data-src="' + item.dataset.favicon + '" alt="" style="width:32px;height:32px;object-fit:contain;margin-right:10px;" onerror="this.outerHTML=\'🎵 \'">'
           : "🎵 ";
-        
-        item.innerHTML = `
-          ${iconHtml}
-          <span class="station-name">${station.name}</span>
-          <div class="buttons-container">
-            <button class="add-btn" aria-label="Додати станцію">ADD</button>
-          </div>`;
-        
+        item.innerHTML = iconHtml +
+          '<span class="station-name">' + (station.name || "") + "</span>" +
+          '<div class="buttons-container"><button type="button" class="add-btn" aria-label="Додати станцію">ADD</button></div>';
         fragment.appendChild(item);
       });
-      
-      stationList.innerHTML = "";
       stationList.appendChild(fragment);
-      stationItems = document.querySelectorAll(".station-item");
-      
-      // Налаштовуємо lazy loading для зображень
-      stationItems.forEach(item => {
-        const img = item.querySelector('img');
-        if (img) {
-          lazyLoadObserver.observe(img);
-        }
+      _searchShown = end;
+      stationItems = stationList.querySelectorAll(".station-item:not(.search-load-more)");
+      stationItems.forEach(function (item) {
+        var img = item.querySelector("img");
+        if (img && lazyLoadObserver) lazyLoadObserver.observe(img);
       });
-      
-      stationList.onclick = e => {
-        const item = e.target.closest(".station-item");
-        const addBtn = e.target.closest(".add-btn");
-        if (item && !item.classList.contains("empty")) {
+      if (_searchShown < _searchAllResults.length) {
+        var more = document.createElement("button");
+        more.type = "button";
+        more.className = "station-item search-load-more";
+        more.textContent = "Ще " + Math.min(SEARCH_PAGE, _searchAllResults.length - _searchShown) +
+          " з " + (_searchAllResults.length - _searchShown);
+        more.style.cssText = "justify-content:center;font-weight:600;cursor:pointer;";
+        more.addEventListener("click", function (e) {
           e.preventDefault();
-          currentIndex = Array.from(stationItems).indexOf(item);
-          changeStation(currentIndex);
-          provideHapticFeedback();
+          e.stopPropagation();
+          renderSearchResultsPage(false);
+        });
+        stationList.appendChild(more);
+      }
+      stationList.onclick = function (e) {
+        if (e.target.closest(".search-load-more")) return;
+        var item = e.target.closest(".station-item");
+        var addBtn = e.target.closest(".add-btn");
+        if (item && !item.classList.contains("empty") && !item.classList.contains("search-load-more")) {
+          if (!addBtn) {
+            e.preventDefault();
+            currentIndex = Array.prototype.indexOf.call(stationItems, item);
+            if (currentIndex < 0) currentIndex = parseInt(item.dataset.index, 10) || 0;
+            changeStation(currentIndex);
+            provideHapticFeedback();
+          }
         }
-        if (addBtn) {
+        if (addBtn && item) {
           e.stopPropagation();
           e.preventDefault();
           showTabModal(item);
         }
       };
     }
+
+    function renderSearchResults(stations) {
+      _searchAllResults = stations || [];
+      _searchShown = 0;
+      renderSearchResultsPage(true);
+    }
+
 
     function shortenGenre(tags) {
       const genres = tags.split(",").map(g => g.trim()).filter(g => g);
@@ -3270,6 +3305,13 @@ searchBtn.addEventListener("click", () => {
 
     window.addEventListener("online", () => {
       showToast("Мережу відновлено", "success");
+      try { setPlaybackStatus("Перепідключення...", true); } catch (e) {}
+      if (typeof isNativeApp === "function" && isNativeApp()) {
+        nativeGetPlaybackState().then(function (st) {
+          if (st) applyNativePlaybackState(st);
+        });
+        return;
+      }
       if (intendedPlaying) {
         isAutoPlayPending = false;
         debouncedTryAutoPlay(4, 700);
@@ -3278,6 +3320,7 @@ searchBtn.addEventListener("click", () => {
 
     window.addEventListener("offline", () => {
       showToast("З'єднання з мережею втрачено", "error");
+      try { setPlaybackStatus("Очікуємо з'єднання...", true); } catch (e) {}
       updateWaveVisualizer(false);
       playPauseBtn.classList.remove("playing");
       errorCount = 0;
