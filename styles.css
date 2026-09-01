@@ -1110,3 +1110,55 @@ button.station-icon:hover {
 .station-item .local-star.on { color: #ffd54f; }
 
 .search-load-more{width:100%;border:1px dashed var(--accent,#00E676);background:transparent;color:var(--text,#fff);padding:12px;margin:8px 0;border-radius:10px;}
+
+
+/* search custom suggest (not full-screen datalist) */
+.search-field-row{position:relative;display:flex;align-items:center;gap:0;width:100%;margin:0 0 8px 0;}
+.search-field-row input{flex:1;min-width:0;padding-right:36px;}
+.search-suggest-btn{
+  position:absolute;right:4px;top:50%;transform:translateY(-50%);
+  width:32px;height:32px;border:0;background:transparent;color:var(--text,#fff);
+  font-size:14px;opacity:.85;cursor:pointer;z-index:2;
+}
+.search-suggest{
+  position:absolute;left:0;right:auto;top:calc(100% + 2px);
+  width:min(220px, 85vw);max-height:180px;overflow-y:auto;
+  background:var(--container-bg,#111);border:1px solid var(--accent,#00E676);
+  border-radius:8px;z-index:40;box-shadow:0 6px 18px rgba(0,0,0,.45);
+}
+.search-suggest button{
+  display:block;width:100%;text-align:left;padding:8px 10px;border:0;
+  background:transparent;color:var(--text,#fff);font-size:13px;cursor:pointer;
+}
+.search-suggest button:active,.search-suggest button:hover{background:rgba(255,255,255,.08);}
+
+/* local seek progress fill */
+#npSeek{
+  -webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:4px;
+  background:linear-gradient(to right, var(--accent,#00E676) 0%, var(--accent,#00E676) var(--seek-pct,0%), rgba(255,255,255,.25) var(--seek-pct,0%), rgba(255,255,255,.25) 100%);
+}
+#npSeek::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent,#00E676);}
+
+
+/* NP visualizer */
+#npViz{
+  display:flex;align-items:flex-end;justify-content:center;gap:4px;
+  height:36px;margin:6px auto 10px;opacity:.95;
+}
+#npViz .bar{
+  width:4px;height:8px;border-radius:2px;background:var(--accent,#00E676);
+  transform-origin:bottom center;
+}
+#npViz.playing .bar{animation:npBarPulse 0.9s ease-in-out infinite alternate;}
+#npViz.playing .bar:nth-child(1){animation-delay:0s}
+#npViz.playing .bar:nth-child(2){animation-delay:.1s}
+#npViz.playing .bar:nth-child(3){animation-delay:.2s}
+#npViz.playing .bar:nth-child(4){animation-delay:.05s}
+#npViz.playing .bar:nth-child(5){animation-delay:.15s}
+#npViz.playing .bar:nth-child(6){animation-delay:.25s}
+#npViz.playing .bar:nth-child(7){animation-delay:.08s}
+@keyframes npBarPulse{
+  from{height:6px;opacity:.55}
+  to{height:28px;opacity:1}
+}
+.controls-container{touch-action:pan-y;}

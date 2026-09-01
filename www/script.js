@@ -3393,6 +3393,8 @@ searchBtn.addEventListener("click", () => {
 
 /* NATIVE_PLAY_SEQ: stationPlaySeq bumped in changeStation; service cancels reconnect */
 /* NP_SHEET_ONLY */
+
+/* NP_SHEET gestures: swipe down close, left/right prev/next */
 (function () {
   function refreshNowPlaying() {
     var nameEl = document.querySelector("#currentStationInfo .station-name");
@@ -3407,6 +3409,7 @@ searchBtn.addEventListener("click", () => {
     var npTrack = document.getElementById("npTrack");
     var npStatus = document.getElementById("npStatus");
     var npArt = document.getElementById("npArt");
+    var npViz = document.getElementById("npViz");
     var npPlay = document.getElementById("npPlay");
     if (npName) npName.textContent = (nameEl && nameEl.textContent) || (typeof lastStationName !== "undefined" ? lastStationName : "—") || "—";
     if (npGenre) npGenre.textContent = (genreEl && genreEl.textContent) || "жанр: —";
@@ -3419,7 +3422,7 @@ searchBtn.addEventListener("click", () => {
         npArt.style.backgroundImage = bg;
         npArt.textContent = "";
       } else {
-        npArt.style.backgroundImage = "";
+        npArt.style.backgroundImage = "none";
         npArt.textContent = "🎵";
       }
     }
@@ -3427,6 +3430,9 @@ searchBtn.addEventListener("click", () => {
       var playing = typeof isPlaying !== "undefined" && isPlaying;
       npPlay.textContent = playing ? "⏸" : "▶";
       npPlay.classList.toggle("is-playing", !!playing);
+      if (npViz) npViz.classList.toggle("playing", !!playing);
+    } else if (npViz) {
+      npViz.classList.toggle("playing", !!(typeof isPlaying !== "undefined" && isPlaying));
     }
   }
   function openNP() {
@@ -3438,6 +3444,39 @@ searchBtn.addEventListener("click", () => {
   function closeNP() {
     var sheet = document.getElementById("nowPlayingSheet");
     if (sheet) sheet.hidden = true;
+  }
+  function bindGestures(card) {
+    if (!card || card._npGest) return;
+    card._npGest = 1;
+    var sx = 0, sy = 0, active = false;
+    card.addEventListener("touchstart", function (e) {
+      if (!e.touches || !e.touches[0]) return;
+      if (e.target && e.target.closest && e.target.closest("input,button,.np-seek")) return;
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY; active = true;
+    }, { passive: true });
+    card.addEventListener("touchend", function (e) {
+      if (!active) return;
+      active = false;
+      var t = (e.changedTouches && e.changedTouches[0]) || null;
+      if (!t) return;
+      var dx = t.clientX - sx, dy = t.clientY - sy;
+      var ax = Math.abs(dx), ay = Math.abs(dy);
+      if (ay > 70 && ay > ax * 1.15 && dy > 0) {
+        closeNP();
+        return;
+      }
+      if (ax > 60 && ax > ay * 1.15) {
+        if (dx < 0) {
+          // left = next
+          var n = document.getElementById("npNext");
+          if (n) n.click();
+        } else {
+          var p = document.getElementById("npPrev");
+          if (p) p.click();
+        }
+        setTimeout(refreshNowPlaying, 280);
+      }
+    }, { passive: true });
   }
   function bind() {
     var icon = document.getElementById("stationIconBtn");
@@ -3466,6 +3505,7 @@ searchBtn.addEventListener("click", () => {
     wire("npPrev", ".controls .control-btn:nth-child(1)");
     wire("npPlay", ".controls .control-btn:nth-child(2)");
     wire("npNext", ".controls .control-btn:nth-child(3)");
+    bindGestures(document.getElementById("npCard"));
     window.addEventListener("native-playback", refreshNowPlaying);
     window.addEventListener("track-meta", refreshNowPlaying);
     window.addEventListener("native-status", refreshNowPlaying);
@@ -3474,3 +3514,147 @@ searchBtn.addEventListener("click", () => {
   else bind();
   setTimeout(bind, 500);
 })();
+
+
+/* custom search suggest — only on ▾, left-aligned narrow list */
+(function () {
+  function optionsFor(inputId) {
+    var map = {
+      searchQuery: "pastSearches",
+      searchCountry: "suggestedCountries",
+      searchGenre: "suggestedGenres"
+    };
+    var dl = document.getElementById(map[inputId] || "");
+    if (!dl) return [];
+    return Array.prototype.map.call(dl.querySelectorAll("option"), function (o) {
+      return o.value;
+    }).filter(Boolean);
+  }
+  function hideAll() {
+    document.querySelectorAll(".search-suggest").forEach(function (el) { el.hidden = true; });
+  }
+  function openFor(inputId) {
+    hideAll();
+    var box = document.getElementById("suggest-" + inputId);
+    var input = document.getElementById(inputId);
+    if (!box || !input) return;
+    var opts = optionsFor(inputId);
+    if (!opts.length) {
+      box.innerHTML = "<button type='button' disabled style='opacity:.5'>—</button>";
+    } else {
+      box.innerHTML = opts.map(function (v) {
+        return "<button type='button' data-v=\"" + String(v).replace(/"/g, "&quot;") + "\">" +
+          String(v).replace(/</g, "&lt;") + "</button>";
+      }).join("");
+      box.querySelectorAll("button[data-v]").forEach(function (btn) {
+        btn.addEventListener("click", function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          input.value = btn.getAttribute("data-v") || "";
+          hideAll();
+          try { input.dispatchEvent(new Event("input", { bubbles: true })); } catch (err) {}
+        });
+      });
+    }
+    box.hidden = false;
+  }
+  function bind() {
+    document.querySelectorAll(".search-suggest-btn").forEach(function (btn) {
+      if (btn._sg) return;
+      btn._sg = 1;
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var id = btn.getAttribute("data-for");
+        var box = document.getElementById("suggest-" + id);
+        if (box && !box.hidden) { hideAll(); return; }
+        openFor(id);
+      });
+    });
+    // no native datalist popup
+    ["searchQuery", "searchCountry", "searchGenre"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      try { el.removeAttribute("list"); } catch (e) {}
+    });
+    document.addEventListener("click", function (e) {
+      if (e.target.closest(".search-field-row")) return;
+      hideAll();
+    });
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind);
+  else bind();
+  setTimeout(bind, 400);
+})();
+
+/* open NP by swipe-up on controls panel */
+(function () {
+  function openNP() {
+    var sheet = document.getElementById("nowPlayingSheet");
+    if (!sheet) return;
+    sheet.hidden = false;
+    try {
+      var playing = !!(typeof isPlaying !== "undefined" && isPlaying);
+      var v = document.getElementById("npViz");
+      if (v) v.classList.toggle("playing", playing);
+      var mv = document.querySelector("#currentStationInfo .wave-visualizer");
+      if (mv) mv.classList.toggle("playing", playing);
+    } catch (e) {}
+    try {
+      var viz = document.getElementById("npViz");
+      if (viz) viz.classList.toggle("playing", !!(typeof isPlaying !== "undefined" && isPlaying));
+    } catch (e) {}
+    // trigger existing refresh if any
+    try {
+      var playing = !!(typeof isPlaying !== "undefined" && isPlaying);
+      var viz = document.getElementById("npViz");
+      if (viz) viz.classList.toggle("playing", playing);
+      var mainViz = document.querySelector("#currentStationInfo .wave-visualizer");
+      if (mainViz) mainViz.classList.toggle("playing", playing);
+      window.dispatchEvent(new CustomEvent("native-playback", { detail: { playing: playing } }));
+    } catch (e) {}
+  }
+  function bindSwipeUp() {
+    var panel = document.querySelector(".controls-container") || document.querySelector(".controls");
+    if (!panel || panel._npSwipe) return;
+    panel._npSwipe = 1;
+    var sx = 0, sy = 0, on = false;
+    panel.addEventListener("touchstart", function (e) {
+      if (!e.touches || !e.touches[0]) return;
+      sx = e.touches[0].clientX;
+      sy = e.touches[0].clientY;
+      on = true;
+    }, { passive: true });
+    panel.addEventListener("touchend", function (e) {
+      if (!on) return;
+      on = false;
+      var t = e.changedTouches && e.changedTouches[0];
+      if (!t) return;
+      var dx = t.clientX - sx, dy = t.clientY - sy;
+      // swipe up
+      if (dy < -48 && Math.abs(dy) > Math.abs(dx) * 1.1) {
+        openNP();
+      }
+    }, { passive: true });
+  }
+  function syncNpViz() {
+    var playing = false;
+    try { playing = !!(typeof isPlaying !== "undefined" && isPlaying); } catch (e) {}
+    var viz = document.getElementById("npViz");
+    if (viz) viz.classList.toggle("playing", playing);
+    var mainViz = document.querySelector("#currentStationInfo .wave-visualizer");
+    if (mainViz && playing) mainViz.classList.add("playing");
+  }
+  function bind() {
+    bindSwipeUp();
+    window.addEventListener("native-playback", syncNpViz);
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden) setTimeout(syncNpViz, 200);
+    });
+    setInterval(syncNpViz, 1000);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind);
+  else bind();
+  setTimeout(bind, 600);
+})();
+

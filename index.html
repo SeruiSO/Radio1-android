@@ -83,11 +83,23 @@
         <span class="search-toggle-chevron">▾</span>
       </button>
       <div class="search-fields" id="searchFields" hidden>
-        <input id="searchQuery" list="pastSearches" placeholder="Назва станції" aria-label="Пошук за назвою станції">
+        <div class="search-field-row">
+          <input id="searchQuery" placeholder="Назва станції" aria-label="Пошук за назвою станції" autocomplete="off">
+          <button type="button" class="search-suggest-btn" data-for="searchQuery" aria-label="Підказки">▾</button>
+          <div class="search-suggest" id="suggest-searchQuery" hidden></div>
+        </div>
         <datalist id="pastSearches"></datalist>
-        <input id="searchCountry" list="suggestedCountries" placeholder="Країна" aria-label="Пошук за країною">
+        <div class="search-field-row">
+          <input id="searchCountry" placeholder="Країна" aria-label="Пошук за країною" autocomplete="off">
+          <button type="button" class="search-suggest-btn" data-for="searchCountry" aria-label="Підказки">▾</button>
+          <div class="search-suggest" id="suggest-searchCountry" hidden></div>
+        </div>
         <datalist id="suggestedCountries"></datalist>
-        <input id="searchGenre" list="suggestedGenres" placeholder="Жанр" aria-label="Пошук за жанром">
+        <div class="search-field-row">
+          <input id="searchGenre" placeholder="Жанр" aria-label="Пошук за жанром" autocomplete="off">
+          <button type="button" class="search-suggest-btn" data-for="searchGenre" aria-label="Підказки">▾</button>
+          <div class="search-suggest" id="suggest-searchGenre" hidden></div>
+        </div>
         <datalist id="suggestedGenres"></datalist>
         <button class="search-btn" aria-label="Виконати пошук">🔍 Знайти</button>
       </div>
@@ -135,6 +147,10 @@
     <div class="np-card" id="npCard" role="dialog" aria-label="Now Playing">
       <div class="np-handle" aria-hidden="true"></div>
       <div class="np-art" id="npArt">🎵</div>
+      <div class="np-viz bars-visualizer wave-visualizer" id="npViz" aria-hidden="true">
+        <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+        <span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span>
+      </div>
       <div class="np-name" id="npName">—</div>
       <div class="np-meta" id="npGenre">жанр: —</div>
       <div class="np-meta" id="npCountry">країна: —</div>
